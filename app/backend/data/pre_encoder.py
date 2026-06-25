@@ -268,7 +268,6 @@ def _run_pre_encode(project_name: str, ae: str, sample_size: int) -> None:
     env["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
     env["HF_HUB_OFFLINE"] = "1"
     env["TRANSFORMERS_OFFLINE"] = "1"
-    # Match the utf-8 decode above — see the Popen call.
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
