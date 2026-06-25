@@ -283,6 +283,12 @@ def _run_pre_encode(project_name: str, ae: str, sample_size: int) -> None:
     # Match the utf-8 decode above — see the Popen call.
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    # Stream the child's "Processing batch N" lines as they're printed.
+    # Python block-buffers stdout when it's a pipe (not a tty), so without
+    # this the progress lines sit in the child's buffer until it exits and
+    # the bar is stuck at 0/N for the whole run. bufsize=1 on our Popen only
+    # controls our read side — the child has to be unbuffered too.
+    env["PYTHONUNBUFFERED"] = "1"
 
     # A cancel can land between start_pre_encode queueing the job and this
     # thread getting scheduled — honour it before spawning anything.
