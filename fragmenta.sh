@@ -54,6 +54,20 @@ install_python311() {
 }
 
 install_linux_webview_deps() {
+    # The dataset folder picker shells out to zenity (see /api/pick-folder).
+    # Ensure it's present up front — independent of the GI/WebKit early-return
+    # below, so existing installs that already have those deps still get it.
+    if ! command_exists zenity; then
+        echo "Installing zenity (dataset folder picker) ..."
+        if command_exists apt-get; then
+            sudo apt install -y zenity
+        elif command_exists dnf; then
+            sudo dnf install -y zenity
+        elif command_exists pacman; then
+            sudo pacman -Sy --noconfirm zenity
+        fi
+    fi
+
     command_exists pkg-config || return 0
     if pkg-config --exists gobject-introspection-1.0 && pkg-config --exists girepository-1.0; then
         echo "Linux GI/WebKit dependencies already available."

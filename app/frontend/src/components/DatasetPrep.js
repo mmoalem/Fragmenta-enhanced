@@ -1714,6 +1714,9 @@ function IngestDialog({ open, projectName, onClose, onIngested, isDocker = false
         try {
             const { data } = await api.post('/api/pick-folder', {});
             if (data?.path) setFolder(data.path);
+            // A response with no path but an error means no picker tool was
+            // available (not a user cancel) — show it so the button isn't dead.
+            else if (data?.error) setDialogError(data.error);
         } catch (e) {
             setDialogError(extractError(e, 'Folder picker failed'));
         }
