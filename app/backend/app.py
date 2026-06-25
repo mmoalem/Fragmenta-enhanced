@@ -2591,22 +2591,35 @@ def pick_folder():
         return None
 
     chosen = None
+    # When no dialog tool is even installed we must NOT report this as a user
+    # cancel — the frontend would silently do nothing and the button looks
+    # dead. Track tool availability so we can return an actionable error.
+    no_picker = False
 
     if sys.platform.startswith('linux'):
-        if _shutil.which('zenity'):
+        has_zenity = bool(_shutil.which('zenity'))
+        has_kdialog = bool(_shutil.which('kdialog'))
+        if has_zenity:
             chosen = _try(['zenity', '--file-selection', '--directory',
                            f'--filename={start_dir}/', '--title=Choose audio folder'])
-        if not chosen and _shutil.which('kdialog'):
+        if not chosen and has_kdialog:
             chosen = _try(['kdialog', '--getexistingdirectory', start_dir])
         if not chosen:
-            # fall back to system python3's tkinter (the venv may not have tk)
+            # Last resort: system python3's tkinter. Pin to /usr/bin/python3 —
+            # bare `python3` on PATH may resolve to our venv, which has no tk.
+            # Most desktops don't ship python3-tk either, so this rarely works;
+            # zenity is the real dependency (installed by fragmenta.sh).
+            sys_py = '/usr/bin/python3' if os.path.exists('/usr/bin/python3') else 'python3'
             script = (
                 "import tkinter as tk; from tkinter import filedialog; "
                 "r = tk.Tk(); r.withdraw(); "
                 f"p = filedialog.askdirectory(initialdir={start_dir!r}, title='Choose audio folder'); "
                 "print(p or '')"
             )
-            chosen = _try(['python3', '-c', script])
+            chosen = _try([sys_py, '-c', script])
+        # zenity/kdialog absent and tk produced nothing → no usable picker.
+        if not chosen and not (has_zenity or has_kdialog):
+            no_picker = True
     elif sys.platform == 'darwin':
         # Escape backslashes and double-quotes so a path can't break out of the
         # AppleScript string literal and inject `do shell script` commands.
@@ -2624,6 +2637,16 @@ def pick_folder():
         chosen = _try(['powershell', '-NoProfile', '-Command', ps])
 
     if not chosen:
+        if no_picker:
+            return jsonify({
+                'path': None,
+                'error': (
+                    'No folder picker found. Install zenity, then try again '
+                    '(Ubuntu/Debian: sudo apt install zenity · '
+                    'Fedora: sudo dnf install zenity · '
+                    'Arch: sudo pacman -S zenity).'
+                ),
+            })
         return jsonify({'path': None, 'cancelled': True})
     return jsonify({'path': chosen})
 

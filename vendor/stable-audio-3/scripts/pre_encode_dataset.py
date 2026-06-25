@@ -36,6 +36,14 @@ from stable_audio_3.data.dataset import (
 
 
 def caption_metadata_fn(info, _audio):
+    # Import locally so it resolves inside DataLoader workers. On spawn-based
+    # platforms (macOS, Windows) workers don't inherit this module's globals,
+    # so the top-level `from pathlib import Path` is invisible here and every
+    # call would raise NameError — which SampleDataset.__getitem__ swallows and
+    # "retries" via unbounded recursion, exhausting RAM. The local import keeps
+    # Path resolvable regardless of how the fn was pickled into the worker.
+    from pathlib import Path
+
     txt = Path(info["path"]).with_suffix(".txt")
     if not txt.exists():
         return {"__reject__": True}

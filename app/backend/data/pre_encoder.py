@@ -87,19 +87,7 @@ def _idle_job() -> Dict[str, Any]:
 
 # --- Autoencoder selection -------------------------------------------------
 
-# Bind latents to a specific SA3 autoencoder. Latents from same-s only work
-# with small-music / small-sfx DiTs; same-l latents only work with medium.
-# For v1 we default to same-s (covers the most common base) and leave a
-# manifest in .latents/_meta.json that training reads to verify
-# compatibility. If a user trains against medium with same-s latents,
-# SA3Trainer falls back to non-encoded training and logs a warning.
 DEFAULT_AUTOENCODER = "same-s"
-
-# Audio length (samples per channel) the dataset pads/crops to before
-# encoding. SA3's pre_encode_dataset.py defaults to ~285s at 44.1 kHz, which
-# covers any training-time --duration up to that limit (and SA3 small caps
-# at 120s anyway). Longer clips in the project will be cropped to this
-# length during encoding — a documented limitation for v1.
 DEFAULT_SAMPLE_SIZE = 12_582_912
 
 
@@ -280,12 +268,10 @@ def _run_pre_encode(project_name: str, ae: str, sample_size: int) -> None:
     env["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
     env["HF_HUB_OFFLINE"] = "1"
     env["TRANSFORMERS_OFFLINE"] = "1"
-    # Match the utf-8 decode above — see the Popen call.
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    env["PYTHONUNBUFFERED"] = "1"
 
-    # A cancel can land between start_pre_encode queueing the job and this
-    # thread getting scheduled — honour it before spawning anything.
     snapshot = get_pre_encode_job(project_name)
     if snapshot and snapshot.get("cancelled"):
         _update_job(project_name, state="cancelled", finished_at=time.time())
@@ -307,9 +293,6 @@ def _run_pre_encode(project_name: str, ae: str, sample_size: int) -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            # Same class of bug as the trainer monitor: locale-default
-            # decoding is cp1252 on Windows, and one UTF-8 glyph in the
-            # child's output would kill this reader thread mid-encode.
             encoding="utf-8",
             errors="replace",
             bufsize=1,
@@ -321,13 +304,10 @@ def _run_pre_encode(project_name: str, ae: str, sample_size: int) -> None:
                 line = line.rstrip()
                 m = batch_pat.search(line)
                 if m:
-                    # Subprocess prints "Processing batch N" once per batch
-                    # (and batch_size=1 → one batch per clip). N starts at 0.
                     _update_job(project_name, current=int(m.group(1)) + 1)
 
         rc = process.wait() if process else 1
 
-        # Check whether we got cancelled mid-flight.
         snapshot = get_pre_encode_job(project_name)
         if snapshot.get("cancelled"):
             _update_job(
@@ -351,7 +331,6 @@ def _run_pre_encode(project_name: str, ae: str, sample_size: int) -> None:
             )
             return
 
-        # Success — write manifest so SA3Trainer can verify AE compatibility.
         manifest = {
             "autoencoder": ae,
             "sample_size": sample_size,
