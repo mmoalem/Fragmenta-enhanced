@@ -244,6 +244,7 @@ function App() {
     const [randomSeed, setRandomSeed] = useState(true);
     const [seedValue, setSeedValue] = useState('');
     const [samplerType, setSamplerType] = useState('euler');
+    const [distShift, setDistShift] = useState('none');
     const [availableLoras, setAvailableLoras] = useState([]);
     const [selectedLora, setSelectedLora] = useState('');
     const [loraMultiplier, setLoraMultiplier] = useState(1.0);
@@ -1086,7 +1087,8 @@ function App() {
                     seed: seedForRun,
                     batch_index: batchIndex,
                     batch_total: totalRuns,
-                    sampler_type: samplerType
+                    sampler_type: samplerType,
+                    dist_shift: distShift
                 };
 
                 const response = await api.post('/api/generate', requestData, {
@@ -2471,6 +2473,21 @@ function App() {
                                                                     <MenuItem value="pingpong">PingPong</MenuItem>
                                                                 </Select>
                                                             </Grid>
+                                                            <Grid item xs={12}>
+                                                                <Tooltip title={TIPS.generate.distShift}>
+                                                                    <Typography gutterBottom sx={{ width: 'fit-content' }}>Schedule</Typography>
+                                                                </Tooltip>
+                                                                <Select
+                                                                    value={distShift}
+                                                                    onChange={(e) => setDistShift(e.target.value)}
+                                                                    size="small"
+                                                                    fullWidth
+                                                                >
+                                                                    <MenuItem value="none">Linear (default)</MenuItem>
+                                                                    <MenuItem value="logsnr">LogSNR</MenuItem>
+                                                                    <MenuItem value="flux">Flux</MenuItem>
+                                                                </Select>
+                                                            </Grid>
 
                                                             <Grid item xs={12}>
                                                                 <Tooltip title={TIPS.generate.seed}>
@@ -2605,6 +2622,7 @@ function App() {
                                                         steps={steps}
                                                         cfgScale={cfgScale}
                                                         samplerType={samplerType}
+                                                        distShift={distShift}
                                                         onGenerated={(blob, filename, params) => {
                                                             const audioUrl = URL.createObjectURL(blob);
                                                             const newFrag = {

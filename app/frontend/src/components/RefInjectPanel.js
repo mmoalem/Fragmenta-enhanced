@@ -22,7 +22,7 @@ import { TIPS } from '../tooltips';
 
 const SA3_LAYERS = 12;
 
-export default function RefInjectPanel({ model_id, negativePrompt, loraStack, steps, cfgScale, samplerType = 'euler', onGenerated }) {
+export default function RefInjectPanel({ model_id, negativePrompt, loraStack, steps, cfgScale, samplerType = 'euler', distShift = 'none', onGenerated }) {
     const [prompt, setPrompt] = useState('');
     const [duration, setDuration] = useState(10);
     const [refAudioPath, setRefAudioPath] = useState('');
@@ -101,6 +101,7 @@ export default function RefInjectPanel({ model_id, negativePrompt, loraStack, st
                 ref_audio_path: refAudioPath,
                 ref_inject_mode: mode,
                 sampler_type: samplerType,
+                dist_shift: distShift,
                 ref_step_taper: stepTaper,
                 ref_time_taper: timeTaper,
             };

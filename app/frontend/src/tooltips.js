@@ -158,6 +158,7 @@ export const TIPS = {
         batch: 'How many clips to generate from this one prompt in a single run. Each uses its own seed (unless you fix the seed). Handy for auditioning variations.',
         seed: 'The random starting point. Random rolls a fresh seed every clip (the value is recorded on each fragment). Turn it off and set a number to reproduce an exact result, or to vary one setting at a time.',
         sampler: 'ODE solver for diffusion sampling. Euler is fastest but noisiest; RK4 is slower but more accurate; DPM++ is the recommended default for quality; PingPong alternates direction for smoother trajectories.',
+        distShift: 'Timestep schedule warping. Linear (default) is even spacing. LogSNR concentrates steps at low noise. Flux concentrates steps at high noise (Flux-style). Some samplers (e.g. RK4) may need a non-linear schedule for stability.',
         generateButton: 'Render the clip(s) with the current settings. Disabled until you\'ve picked a downloaded model and entered a prompt.',
         stop: 'Stop the current generation. The in-progress clip is discarded — nothing is saved.',
     },
