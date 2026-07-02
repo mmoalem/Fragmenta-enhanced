@@ -456,17 +456,42 @@ def remove_lora_by_index(model, lora_index):
                 for i in reversed(to_remove):
                     del params[i]
 
-def set_lora_strength(model, strength: float, lora_index=None):
-    """Set lora strength. If lora_index is None, sets all LoRAs. If specified, sets only that index."""
-    strength = float(strength)
-    if lora_index is None:
-        for name, buf in model.named_buffers(recurse=True):
-            if name.endswith("lora_strength"):
-                buf.fill_(strength)
+def set_lora_strength(model, strength, lora_index=None):
+    """Set lora strength.
+
+    Args:
+        model: The model to set strengths on.
+        strength: Float (all components same) or dict with optional
+            'sa', 'ca', 'mlp', 'default' keys for per-component control.
+        lora_index: If None, sets all LoRAs. If specified, sets only that index.
+    """
+    from .utils import get_lora_layers
+    if isinstance(strength, dict):
+        sa = float(strength.get('sa', 1.0))
+        ca = float(strength.get('ca', 1.0))
+        mlp = float(strength.get('mlp', 1.0))
+        default = float(strength.get('default', 1.0))
+        for name, p in get_lora_layers(model):
+            if lora_index is not None and p.lora_index != lora_index:
+                continue
+            if '.self_attn' in name:
+                p.lora_strength.fill_(sa)
+            elif '.cross_attn' in name:
+                p.lora_strength.fill_(ca)
+            elif '.ff' in name:
+                p.lora_strength.fill_(mlp)
+            else:
+                p.lora_strength.fill_(default)
     else:
-        for p in _iter_lora_params(model):
-            if p.lora_index == lora_index:
-                p.lora_strength.fill_(strength)
+        strength = float(strength)
+        if lora_index is None:
+            for name, buf in model.named_buffers(recurse=True):
+                if name.endswith("lora_strength"):
+                    buf.fill_(strength)
+        else:
+            for p in _iter_lora_params(model):
+                if p.lora_index == lora_index:
+                    p.lora_strength.fill_(strength)
 
 def _iter_lora_params(model):
     for _, mod in model.named_modules():

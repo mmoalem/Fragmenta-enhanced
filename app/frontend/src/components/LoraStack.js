@@ -68,13 +68,14 @@ export default function LoraStack({ selectedModel, value, onChange }) {
     // The single-LoRA case stays one click: when no slots are populated AND
     // there's a compatible LoRA, surface one empty slot so the user sees a
     // "Pick a LoRA" dropdown immediately.
+    const defaultSlot = { path: '', strengths: { sa: 1.0, ca: 1.0, mlp: 1.0 }, bypassed: false };
     const slots = (value && value.length > 0)
         ? value
-        : (compatible.length ? [{ path: '', strength: 1.0, bypassed: false }] : []);
+        : (compatible.length ? [defaultSlot] : []);
 
     const addSlot = () => {
         if (slots.length >= MAX_SLOTS) return;
-        onChange([...slots, { path: '', strength: 1.0, bypassed: false }]);
+        onChange([...slots, { ...defaultSlot }]);
     };
 
     const removeSlot = (idx) => onChange(slots.filter((_, i) => i !== idx));
@@ -201,14 +202,16 @@ export default function LoraStack({ selectedModel, value, onChange }) {
                                 </Stack>
 
                                 <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 1, mb: 2 }}>
-                                    <Typography variant="caption" color="text.secondary" sx={{ width: 60 }}>
-                                        Strength
-                                    </Typography>
+                                    <Tooltip title={TIPS.lora.sa}>
+                                        <Typography variant="caption" color="text.secondary" sx={{ width: 60 }}>
+                                            SA
+                                        </Typography>
+                                    </Tooltip>
                                     <Slider
                                         size="small"
-                                        value={slot.strength}
+                                        value={slot.strengths?.sa ?? 1.0}
                                         disabled={bypassed}
-                                        onChange={(e, v) => setSlot(idx, { strength: v })}
+                                        onChange={(e, v) => setSlot(idx, { strengths: { ...slot.strengths, sa: v } })}
                                         min={-2}
                                         max={2}
                                         step={0.05}
@@ -220,7 +223,59 @@ export default function LoraStack({ selectedModel, value, onChange }) {
                                         sx={{ flex: 1 }}
                                     />
                                     <Typography variant="body2" sx={{ width: 40, textAlign: 'right' }}>
-                                        {bypassed ? '—' : slot.strength.toFixed(2)}
+                                        {bypassed ? '—' : (slot.strengths?.sa ?? 1.0).toFixed(2)}
+                                    </Typography>
+                                </Stack>
+
+                                <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 1, mb: 2 }}>
+                                    <Tooltip title={TIPS.lora.ca}>
+                                        <Typography variant="caption" color="text.secondary" sx={{ width: 60 }}>
+                                            CA
+                                        </Typography>
+                                    </Tooltip>
+                                    <Slider
+                                        size="small"
+                                        value={slot.strengths?.ca ?? 1.0}
+                                        disabled={bypassed}
+                                        onChange={(e, v) => setSlot(idx, { strengths: { ...slot.strengths, ca: v } })}
+                                        min={-2}
+                                        max={2}
+                                        step={0.05}
+                                        valueLabelDisplay="auto"
+                                        marks={[
+                                            { value: 0, label: '0' },
+                                            { value: 1, label: '1' },
+                                        ]}
+                                        sx={{ flex: 1 }}
+                                    />
+                                    <Typography variant="body2" sx={{ width: 40, textAlign: 'right' }}>
+                                        {bypassed ? '—' : (slot.strengths?.ca ?? 1.0).toFixed(2)}
+                                    </Typography>
+                                </Stack>
+
+                                <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 1, mb: 2 }}>
+                                    <Tooltip title={TIPS.lora.mlp}>
+                                        <Typography variant="caption" color="text.secondary" sx={{ width: 60 }}>
+                                            MLP
+                                        </Typography>
+                                    </Tooltip>
+                                    <Slider
+                                        size="small"
+                                        value={slot.strengths?.mlp ?? 1.0}
+                                        disabled={bypassed}
+                                        onChange={(e, v) => setSlot(idx, { strengths: { ...slot.strengths, mlp: v } })}
+                                        min={-2}
+                                        max={2}
+                                        step={0.05}
+                                        valueLabelDisplay="auto"
+                                        marks={[
+                                            { value: 0, label: '0' },
+                                            { value: 1, label: '1' },
+                                        ]}
+                                        sx={{ flex: 1 }}
+                                    />
+                                    <Typography variant="body2" sx={{ width: 40, textAlign: 'right' }}>
+                                        {bypassed ? '—' : (slot.strengths?.mlp ?? 1.0).toFixed(2)}
                                     </Typography>
                                 </Stack>
 

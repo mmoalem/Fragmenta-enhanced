@@ -582,8 +582,20 @@ def generate_audio():
             lora_path = str(item['path']).strip()
             if not lora_path:
                 continue
-            strength = float(item.get('strength', 1.0))
-            strength = max(-2.0, min(2.0, strength))
+            # Support both legacy 'strength' (float) and per-component 'strengths' (dict)
+            strengths_raw = item.get('strengths')
+            if isinstance(strengths_raw, dict):
+                strengths = {}
+                for comp in ('sa', 'ca', 'mlp', 'default'):
+                    v = strengths_raw.get(comp)
+                    if v is not None:
+                        strengths[comp] = max(-2.0, min(2.0, float(v)))
+                if not strengths:
+                    strengths = {'sa': 1.0, 'ca': 1.0, 'mlp': 1.0}
+            else:
+                strength = float(item.get('strength', 1.0))
+                strength = max(-2.0, min(2.0, strength))
+                strengths = {'sa': strength, 'ca': strength, 'mlp': strength}
             # Resolve relative paths against the project root.
             lora_abs = Path(lora_path)
             if not lora_abs.is_absolute():
@@ -616,7 +628,7 @@ def generate_audio():
                                  'lora_id': lora_path,
                                  'expected': model_id,
                                  'actual': _lora_base})), 400
-            loras.append({'path': str(lora_abs), 'strength': strength})
+            loras.append({'path': str(lora_abs), 'strengths': strengths})
 
     except ValidationError as e:
         field = e.details.get('field', 'unknown') if e.details else 'unknown'
@@ -818,6 +830,7 @@ def list_loras():
                 # to the run dir itself for runs that don't follow that
                 # convention.
                 search_dirs = [run_dir / "checkpoints", run_dir]
+                is_fallback = not (run_dir / "checkpoints").is_dir()
                 ckpt_files = []
                 for d in search_dirs:
                     if d.is_dir():
@@ -851,7 +864,11 @@ def list_loras():
                     # `train_lora.py` doesn't embed base_model itself — we add
                     # it during the .ckpt→.safetensors conversion step.
                     # Fall back to training_metadata.json for legacy runs.
-                    base_model = meta.get("base_model") or meta.get("base_model_id")
+                    base_model = (
+                        meta.get("base_model")
+                        or meta.get("base_model_id")
+                        or lora_config.get("base_model")
+                    )
                     if not base_model:
                         run_meta_path = run_dir / "training_metadata.json"
                         if run_meta_path.exists():
@@ -882,18 +899,24 @@ def list_loras():
                         or "lora"
                     )
 
-                    entry = loras_by_name.get(run_dir.name)
+                    # When safetensors live directly in the run dir (no
+                    # checkpoints/ subdir), treat each file as its own LoRA
+                    # entry so users can bundle unrelated LoRAs in one folder.
+                    group_key = ckpt.stem if is_fallback else run_dir.name
+                    display_name = ckpt.stem if is_fallback else run_dir.name
+
+                    entry = loras_by_name.get(group_key)
                     if entry is None:
                         entry = {
-                            "id": run_dir.name,
-                            "name": run_dir.name,
+                            "id": group_key,
+                            "name": display_name,
                             "base_model": base_model,
                             "rank": rank,
                             "alpha": alpha,
                             "adapter_type": adapter_type,
                             "all_checkpoints": [],
                         }
-                        loras_by_name[run_dir.name] = entry
+                        loras_by_name[group_key] = entry
 
                     entry["all_checkpoints"].append({
                         "path": rel_path,
@@ -1259,6 +1282,11 @@ def clear_fragments():
 def update_lora_strength():
     """Live-update a loaded LoRA's strength without regenerating.
 
+    Accepts either:
+      {"index": 0, "strength": 1.0}  — single value for all components,
+    or:
+      {"index": 0, "strengths": {"sa": 1.0, "ca": 0.5, "mlp": 0.8}}
+
     Performance Mode uses this when the user drags a strength slider —
     the next generate() picks up the new value, but the model itself
     doesn't need to be reloaded. Returns 409 if no LoRAs are loaded yet
@@ -1267,21 +1295,96 @@ def update_lora_strength():
     data = request.json or {}
     try:
         index = int(data.get('index', -1))
-        strength = float(data.get('strength', 1.0))
+        strengths_raw = data.get('strengths')
+        if isinstance(strengths_raw, dict):
+            strengths = {}
+            for comp in ('sa', 'ca', 'mlp', 'default'):
+                v = strengths_raw.get(comp)
+                if v is not None:
+                    strengths[comp] = float(v)
+            if not strengths:
+                strengths = {'sa': 1.0, 'ca': 1.0, 'mlp': 1.0}
+        else:
+            s = float(data.get('strength', 1.0))
+            strengths = {'sa': s, 'ca': s, 'mlp': s}
     except (TypeError, ValueError):
-        return jsonify(APIResponse.error("index and strength are required.", status_code=400)), 400
+        return jsonify(APIResponse.error("index and strength/strengths are required.", status_code=400)), 400
 
     try:
         if not getattr(generator, 'model', None):
             return jsonify(APIResponse.error("No model loaded.", status_code=409)), 409
-        ok = generator.set_lora_strength(index, strength)
+
+        ok = generator.set_lora_strength(index, strengths)
         if not ok:
             return jsonify(APIResponse.error(
                 f"LoRA index {index} not loaded.", status_code=409)), 409
-        return jsonify({'success': True, 'index': index, 'strength': strength})
+        return jsonify({'success': True, 'index': index, 'strengths': strengths})
     except Exception as e:
         logger.exception("set_lora_strength failed")
         return jsonify(APIResponse.error(str(e), status_code=500)), 500
+
+
+_RE_LENGTH = re.compile(r' Length: (\d+) seconds\.?\s*$')
+
+
+@app.route('/api/reprompt', methods=['POST'])
+def reprompt():
+    """Rewrite a prompt using a local LLM (Qwen/Qwen3.5-2B).
+
+    Request:
+        prompt (required): The user's input text.
+        preset (optional): "Auto" (default), "Music", "Instrument", "SFX", "One-shot".
+        max_new_tokens (optional): Max tokens to generate (default 128).
+        temperature (optional): Sampling temperature (default 1.11).
+
+    Returns:
+        {ok, result, category, duration} where duration is the extracted
+        Length: N seconds value (or null).
+    """
+    start = time.time()
+    data = request.json or {}
+    try:
+        prompt = Validator.string(data.get('prompt', ''), 'prompt', min_length=0, max_length=2000)
+    except ValidationError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    if not prompt:
+        return jsonify({'ok': False, 'error': 'prompt is required'}), 400
+    preset = str(data.get('preset', 'Auto'))
+    max_new_tokens = int(data.get('max_new_tokens', 128))
+    temperature = float(data.get('temperature', 1.11))
+    model_id = str(data.get('model_id', 'Qwen/Qwen3.5-2B'))
+
+    try:
+        from stable_audio_3.interface.reprompt import is_model_cached, reprompt
+
+        if not is_model_cached(model_id):
+            logger.info(f"Prompt Assistant model {model_id} not cached, downloading…")
+            from stable_audio_3.interface.reprompt import get_model
+            get_model(model_id)
+
+        _, result, category = reprompt(
+            prompt, preset, "", model_id, max_new_tokens, temperature
+        )
+
+        m = _RE_LENGTH.search(result)
+        duration = int(m.group(1)) if m else None
+        if duration is not None:
+            result = result[:m.start()]
+
+        elapsed = time.time() - start
+        logger.info(
+            f"reprompt: preset={preset} category={category} "
+            f"duration={duration}s elapsed={elapsed:.1f}s"
+        )
+        return jsonify({
+            'ok': True,
+            'result': result,
+            'category': category,
+            'duration': duration,
+        })
+    except Exception as e:
+        logger.exception("reprompt failed")
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/training/suggest-hyperparams', methods=['GET'])

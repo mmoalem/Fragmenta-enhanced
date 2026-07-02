@@ -69,7 +69,7 @@ class StableAudioModel:
             self.model, lora_ckpt_paths, model_type, svd_bases_path=svd_bases_path
         )
 
-    def set_lora_strength(self, strength: float, lora_index: int | None = None):
+    def set_lora_strength(self, strength: float | dict, lora_index: int | None = None):
         _set_lora_strength(self.model.model, strength, lora_index=lora_index)
         _set_lora_strength(self.model.conditioner, strength, lora_index=lora_index)
 

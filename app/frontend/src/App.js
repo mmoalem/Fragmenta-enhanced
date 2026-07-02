@@ -226,8 +226,9 @@ function App() {
     // 'edit' (audio → audio: style transfer, inpaint, extend).
     const [generationMode, setGenerationMode] = useState('create');
     const [generationPrompt, setGenerationPrompt] = useState('');
+    const [reprompting, setReprompting] = useState(false);
     const [negativePrompt, setNegativePrompt] = useState('');
-    const [loraStack, setLoraStack] = useState([]);   // [{path, strength}]
+    const [loraStack, setLoraStack] = useState([]);   // [{path, strengths: {sa, ca, mlp}, bypassed}]
     const [generationDuration, setGenerationDuration] = useState(10);
     const [generatedAudio, setGeneratedAudio] = useState(null);
     const [generatedAudioBlob, setGeneratedAudioBlob] = useState(null);
@@ -970,10 +971,12 @@ function App() {
         const activeLoras = (loraStack || []).filter(s => s.path);
         if (activeLoras.length) {
             // Bypassed slots stay in the stack (load order preserved) but
-            // contribute nothing — send strength 0.
+            // contribute nothing — send all strengths 0.
             baseRequestData.loras = activeLoras.map(s => ({
                 path: s.path,
-                strength: s.bypassed ? 0 : s.strength,
+                strengths: s.bypassed
+                    ? { sa: 0, ca: 0, mlp: 0 }
+                    : (s.strengths || { sa: s.strength || 1.0, ca: s.strength || 1.0, mlp: s.strength || 1.0 }),
             }));
         }
         // SA3 post-trained models bake CFG at 1.0 — only the *-base variants
@@ -2099,7 +2102,7 @@ function App() {
 
                             {/* Generation Tab */}
                             <TabPanel value={displayedTab} index={2}>
-                                <Grid container spacing={{ xs: 2, sm: 2.5, md: 3 }} sx={appStyles.responsiveGrid}>
+                                <Grid container spacing={{ xs: 2, sm: 2.5, md: 3 }} sx={{ ...appStyles.responsiveGrid, maxWidth: { md: 1400 }, mx: { md: 'auto' } }}>
                                     <Grid item xs={12} md={6} sx={appStyles.secondaryPaneItem}>
                                         <Box sx={appStyles.primaryPaneContent}>
                                             <Paper sx={appStyles.elevatedInfoCard}>
@@ -2284,6 +2287,37 @@ function App() {
                                                     sx={appStyles.fieldMarginBottomLarge}
                                                 />
                                                 </Tooltip>
+
+                                                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, mt: -1 }}>
+                                                    <Tooltip title={TIPS.generate.promptAssistant}>
+                                                    <Button
+                                                        size="small"
+                                                        variant="text"
+                                                        startIcon={<WandIcon size={14} />}
+                                                        disabled={reprompting || !generationPrompt.trim()}
+                                                        onClick={async () => {
+                                                            setReprompting(true);
+                                                            try {
+                                                                const resp = await api.post('/api/reprompt', {
+                                                                    prompt: generationPrompt,
+                                                                    preset: 'Auto',
+                                                                });
+                                                                const d = resp.data;
+                                                                if (d.ok) {
+                                                                    setGenerationPrompt(d.result);
+                                                                    if (d.duration) setGenerationDuration(d.duration);
+                                                                }
+                                                            } catch (err) {
+                                                                console.error('Prompt Assistant failed:', err);
+                                                            } finally {
+                                                                setReprompting(false);
+                                                            }
+                                                        }}
+                                                    >
+                                                        {reprompting ? 'Rewriting…' : 'Prompt Assistant'}
+                                                    </Button>
+                                                    </Tooltip>
+                                                </Box>
 
 
                                                 <Tooltip title={TIPS.generate.duration}>

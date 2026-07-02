@@ -121,6 +121,9 @@ export const TIPS = {
         dragReorder: 'Drag to reorder (slot 0 loads first)',
         bypass: (bypassed) =>
             bypassed ? 'Bypassed (strength 0) — click to enable' : 'Bypass this slot',
+        sa: 'Self-Attention strength — controls how the LoRA affects intra-token relationships',
+        ca: 'Cross-Attention strength — controls how the LoRA affects prompt-to-token conditioning',
+        mlp: 'MLP / Feed-Forward strength — controls how the LoRA affects per-token feature transformation',
     },
 
     // Fragment lists — ChannelFragmentHistory.js + GeneratedFragmentsWindow.js.
@@ -144,6 +147,7 @@ export const TIPS = {
 
     // App.js — main Audio Generation tab (the primary "create" surface).
     generate: {
+        promptAssistant: 'Rewrite your prompt with more detail using a local LLM (Qwen 2B). May also suggest a duration.',
         mode: 'Generate new makes audio from a text prompt. Edit existing transforms a clip you provide (style transfer, inpaint a region, or extend it).',
         modelSelect: 'The checkpoint that does the generating. Distilled models are fixed at fast settings (8 steps, no guidance); -base models let you tune CFG and steps. Greyed-out rows aren\'t downloaded yet — use the download icon.',
         prompt: 'Describe the sound you want — instruments, genre, mood, tempo, key. SA3 responds to AudioSparx-style tags (e.g. "TrackType: Music, Genre: Techno, BPM: 128") as well as plain English.',

@@ -38,7 +38,7 @@ import { getFragmentDragPayload } from '../utils/fragmentDrag';
  * Props:
  *   model_id:        active SA3 model id
  *   negativePrompt:  optional, passed through
- *   loraStack:       [{path, strength, bypassed}] from the Generation panel —
+ *   loraStack:       [{path, strengths: {sa, ca, mlp}, bypassed}] from the Generation panel —
  *                    applied to the edit so style/inpaint/extend inherit the
  *                    same LoRA character as plain generation.
  *   steps:           sampler step count from the Generation panel.
@@ -305,7 +305,12 @@ export default function EditPanel({ model_id, negativePrompt, loraStack, steps, 
             // load order but contribute strength 0 (same as plain generation).
             const activeLoras = (loraStack || [])
                 .filter((s) => s.path)
-                .map((s) => ({ path: s.path, strength: s.bypassed ? 0 : s.strength }));
+                .map((s) => ({
+                    path: s.path,
+                    strengths: s.bypassed
+                        ? { sa: 0, ca: 0, mlp: 0 }
+                        : (s.strengths || { sa: s.strength || 1.0, ca: s.strength || 1.0, mlp: s.strength || 1.0 }),
+                }));
             if (activeLoras.length) body.loras = activeLoras;
 
             if (mode === 'style') {

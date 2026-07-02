@@ -130,7 +130,7 @@ class AudioGenerator:
         self._model_id: Optional[str] = None
         self._device: Optional[str] = None
         # Tracks LoRAs currently injected into self.model. List of
-        # {"path": str, "strength": float}. Empty when no LoRAs are active.
+        # {"path": str, "strengths": {"sa": float, "ca": float, "mlp": float}}. Empty when no LoRAs are active.
         self._loaded_loras: list = []
         # Serializes whole generations (and model unloads) — see module
         # docstring. _state_lock only guards the _current_stop swap so
@@ -345,7 +345,7 @@ class AudioGenerator:
     def _apply_loras(self, loras: list) -> None:
         """Inject the given LoRA stack into self.model (idempotent).
 
-        loras: [{"path": str, "strength": float}, ...]
+        loras: [{"path": str, "strengths": {"sa": float, "ca": float, "mlp": float}}, ...]
 
         Strategy:
           * Same paths in same order → just update strengths in place.
@@ -360,7 +360,7 @@ class AudioGenerator:
         if new_paths == cur_paths:
             # Path-set unchanged; only strengths may have moved.
             for i, l in enumerate(loras):
-                self.model.set_lora_strength(l["strength"], lora_index=i)
+                self.model.set_lora_strength(l["strengths"], lora_index=i)
             self._loaded_loras = list(loras)
             return
 
@@ -404,16 +404,29 @@ class AudioGenerator:
                 warnings.simplefilter("ignore")
                 self.model.load_lora(new_paths)
             for i, l in enumerate(loras):
-                self.model.set_lora_strength(l["strength"], lora_index=i)
+                self.model.set_lora_strength(l["strengths"], lora_index=i)
 
         self._loaded_loras = list(loras)
 
-    def set_lora_strength(self, index: int, strength: float) -> bool:
-        """Live-update one slot's strength. Returns False if index invalid."""
+    def set_lora_strength(self, index: int, strength: float | dict) -> bool:
+        """Live-update one slot's strength. Returns False if index invalid.
+        Accepts a float (applied to all components) or a dict with sa/ca/mlp keys.
+        """
         if not self.model or index < 0 or index >= len(self._loaded_loras):
             return False
-        self.model.set_lora_strength(float(strength), lora_index=index)
-        self._loaded_loras[index]["strength"] = float(strength)
+        if isinstance(strength, dict):
+            strengths = {}
+            for comp in ('sa', 'ca', 'mlp', 'default'):
+                v = strength.get(comp)
+                if v is not None:
+                    strengths[comp] = float(v)
+            if not strengths:
+                strengths = {'sa': 1.0, 'ca': 1.0, 'mlp': 1.0}
+        else:
+            s = float(strength)
+            strengths = {'sa': s, 'ca': s, 'mlp': s}
+        self.model.set_lora_strength(strengths, lora_index=index)
+        self._loaded_loras[index]["strengths"] = strengths
         return True
 
     # --- public entry ---------------------------------------------------------
@@ -459,7 +472,7 @@ class AudioGenerator:
         half: bool = True,
         chunked_decode: Optional[bool] = None,
         loop_mode: bool = False,                 # bars-mode passthrough
-        loras: Optional[list] = None,            # [{path, strength}, ...]
+        loras: Optional[list] = None,            # [{path, strengths}, ...]
         # Phase 7: audio-to-audio + inpainting -----------------------------
         init_audio_path: Optional[str] = None,
         init_noise_level: float = 1.0,
