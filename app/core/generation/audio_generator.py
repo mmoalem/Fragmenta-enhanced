@@ -29,6 +29,7 @@ import soundfile as sf
 import torch
 
 from utils.logger import get_logger
+from .ref_inject import RefInjectModelWrapper
 
 logger = get_logger("AudioGenerator")
 
@@ -483,6 +484,15 @@ class AudioGenerator:
         loop_stitch: Optional[str] = None,       # "inpaint" | "crossfade" | None
         loop_bars: Optional[int] = None,
         loop_bpm: Optional[float] = None,
+        # Sampler/scheduler options -----------------------------------------
+        sampler_type: Optional[str] = None,      # "euler" | "rk4" | "dpmpp" | "pingpong"
+        dist_shift: Optional[str] = None,        # scheduler type: "logsnr" | "flux" | "none"
+        # Reference audio injection -----------------------------------------
+        ref_audio_path: Optional[str] = None,    # path to reference audio for KV injection
+        ref_layer_strengths: Optional[dict] = None,  # layer_idx -> strength mapping
+        ref_inject_mode: str = "inject",          # "inject" | "replace" | "threshold"
+        ref_step_taper: str = "none",
+        ref_time_taper: str = "none",
         **_ignored_legacy_kwargs: Any,
     ) -> Path:
         # `loop_stitch` / `loop_bars` / `loop_bpm` are accepted for API
@@ -555,8 +565,11 @@ class AudioGenerator:
             seed=int(seed),
             batch_size=int(batch_size),
             chunked_decode=chunked_decode,
+            sampler_type=sampler_type,
             callback=_cb,
         )
+        if dist_shift is not None:
+            gen_kwargs["dist_shift"] = dist_shift
         if init_audio is not None:
             gen_kwargs["init_audio"] = init_audio
             gen_kwargs["init_noise_level"] = float(init_noise_level)
@@ -572,6 +585,24 @@ class AudioGenerator:
                     list(inpaint_ends) if len(inpaint_ends) > 1 else float(inpaint_ends[0])
                 )
 
+        # Reference audio injection: wrap the DiT model for two-pass sampling
+        _ref_wrapper = None
+        _original_dit = None
+        if ref_audio_path:
+            ref_raw = self._load_audio(ref_audio_path)
+            ref_latent = self._encode_ref_audio(ref_raw, sample_size_ceiling)
+            active = [int(k) for k, v in (ref_layer_strengths or {}).items() if float(v) > 0]
+            _original_dit = self.model.model.model  # DiffusionTransformer
+            _ref_wrapper = RefInjectModelWrapper(
+                _original_dit, ref_latent,
+                layer_strengths={int(k): float(v) for k, v in (ref_layer_strengths or {}).items()},
+                inject_mode=ref_inject_mode,
+                step_taper=ref_step_taper,
+                time_taper=ref_time_taper,
+                active_layers=active or None,
+            )
+            self.model.model.model = _ref_wrapper
+
         try:
             audio = self.model.generate(**gen_kwargs)
             # audio: torch.Tensor[B, channels=2, samples] in [-1, 1] @ 44.1 kHz
@@ -582,6 +613,9 @@ class AudioGenerator:
             _set_progress(phase="failed", is_generating=False,
                           error=str(exc), ended_at=time.time())
             raise
+        finally:
+            if _original_dit is not None:
+                self.model.model.model = _original_dit
 
         # Seamless-loop processing (quantize, inpaint, crossfade) was
         # removed: the user A/B-compared raw SA3 output against the full
@@ -624,6 +658,39 @@ class AudioGenerator:
         elif wav.shape[0] > 2:
             wav = wav[:2]
         return int(sr), wav
+
+    # --- reference audio encoder ----------------------------------------------
+    def _encode_ref_audio(self, audio_input: tuple, target_samples: int) -> torch.Tensor:
+        """Encode a (sample_rate, tensor) audio pair to latent via the model's pretransform.
+
+        Returns a (1, C, T) latent tensor on the model's device.
+        """
+        if self.model is None or self.model.model is None:
+            raise RuntimeError("Model not loaded")
+        in_sr, wav = audio_input
+        dev = self.model.device
+        pre = self.model.model.pretransform
+        if pre is None:
+            raise RuntimeError("Model has no pretransform for latent encoding")
+        # Resample & match channels
+        import torchaudio
+        if in_sr != self.model.model.sample_rate:
+            wav = torchaudio.functional.resample(wav, in_sr, self.model.model.sample_rate)
+        if wav.shape[0] == 1:
+            wav = wav.repeat(2, 1)
+        elif wav.shape[0] > 2:
+            wav = wav[:2]
+        # Trim or pad to target_samples
+        if wav.shape[-1] > target_samples:
+            wav = wav[:, :target_samples]
+        elif wav.shape[-1] < target_samples:
+            pad = target_samples - wav.shape[-1]
+            wav = torch.nn.functional.pad(wav, (0, pad))
+        # Move to device and encode
+        wav = wav.to(dev).to(next(pre.parameters()).dtype)
+        with torch.no_grad():
+            latent = pre.encode(wav.unsqueeze(0))  # (1, C, T) latent
+        return latent
 
     # --- output --------------------------------------------------------------
     def _finalize(self, audio: torch.Tensor, *, prompt: str, model_id: str) -> Path:

@@ -157,6 +157,7 @@ export const TIPS = {
         steps: 'How many denoising steps the sampler runs. More steps = cleaner detail but slower; fewer = faster but rougher. 50 is a good default for -base models. Distilled models are locked at 8.',
         batch: 'How many clips to generate from this one prompt in a single run. Each uses its own seed (unless you fix the seed). Handy for auditioning variations.',
         seed: 'The random starting point. Random rolls a fresh seed every clip (the value is recorded on each fragment). Turn it off and set a number to reproduce an exact result, or to vary one setting at a time.',
+        sampler: 'ODE solver for diffusion sampling. Euler is fastest but noisiest; RK4 is slower but more accurate; DPM++ is the recommended default for quality; PingPong alternates direction for smoother trajectories.',
         generateButton: 'Render the clip(s) with the current settings. Disabled until you\'ve picked a downloaded model and entered a prompt.',
         stop: 'Stop the current generation. The in-progress clip is discarded — nothing is saved.',
     },

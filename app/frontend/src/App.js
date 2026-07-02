@@ -71,6 +71,7 @@ import TrainingMonitor from './components/TrainingMonitor';
 import CheckpointManagerWindow from './components/CheckpointManagerWindow';
 import LoraStack from './components/LoraStack';
 import EditPanel from './components/EditPanel';
+import RefInjectPanel from './components/RefInjectPanel';
 import GeneratedFragmentsWindow from './components/GeneratedFragmentsWindow';
 import WelcomePage from './components/WelcomePage';
 import { formatDuration } from './utils/format';
@@ -242,6 +243,7 @@ function App() {
     const [batchCount, setBatchCount] = useState(1);
     const [randomSeed, setRandomSeed] = useState(true);
     const [seedValue, setSeedValue] = useState('');
+    const [samplerType, setSamplerType] = useState('euler');
     const [availableLoras, setAvailableLoras] = useState([]);
     const [selectedLora, setSelectedLora] = useState('');
     const [loraMultiplier, setLoraMultiplier] = useState(1.0);
@@ -1083,7 +1085,8 @@ function App() {
                     ...baseRequestData,
                     seed: seedForRun,
                     batch_index: batchIndex,
-                    batch_total: totalRuns
+                    batch_total: totalRuns,
+                    sampler_type: samplerType
                 };
 
                 const response = await api.post('/api/generate', requestData, {
@@ -2269,6 +2272,7 @@ function App() {
                                                     >
                                                         <ToggleButton value="create">Generate new</ToggleButton>
                                                         <ToggleButton value="edit">Edit existing</ToggleButton>
+                                                        <ToggleButton value="ref-inject">Ref. injection</ToggleButton>
                                                     </ToggleButtonGroup>
                                                     </Tooltip>
                                                 </Box>
@@ -2451,6 +2455,25 @@ function App() {
                                                                 </Box>
                                                             </Grid>
 
+                                                            {!isDistilledBase && (
+                                                                <Grid item xs={12}>
+                                                                    <Tooltip title={TIPS.generate.sampler}>
+                                                                        <Typography gutterBottom sx={{ width: 'fit-content' }}>Sampler</Typography>
+                                                                    </Tooltip>
+                                                                    <Select
+                                                                        value={samplerType}
+                                                                        onChange={(e) => setSamplerType(e.target.value)}
+                                                                        size="small"
+                                                                        fullWidth
+                                                                    >
+                                                                        <MenuItem value="euler">Euler</MenuItem>
+                                                                        <MenuItem value="rk4">RK4</MenuItem>
+                                                                        <MenuItem value="dpmpp">DPM++</MenuItem>
+                                                                        <MenuItem value="pingpong">PingPong</MenuItem>
+                                                                    </Select>
+                                                                </Grid>
+                                                            )}
+
                                                             <Grid item xs={12}>
                                                                 <Tooltip title={TIPS.generate.seed}>
                                                                     <Typography gutterBottom sx={{ width: 'fit-content' }}>Seed</Typography>
@@ -2567,6 +2590,41 @@ function App() {
                                                                 timestamp: new Date().toLocaleString(),
                                                                 createdAt: Date.now(),
                                                                 editMode: params.init_audio_path ? 'style' : params.inpaint_audio_path ? 'inpaint/extend' : null,
+                                                            };
+                                                            setGeneratedFragments(prev => {
+                                                                const next = [...prev, newFrag];
+                                                                return next.length > 100 ? next.slice(next.length - 100) : next;
+                                                            });
+                                                        }}
+                                                    />
+                                                )}
+
+                                                {generationMode === 'ref-inject' && (
+                                                    <RefInjectPanel
+                                                        model_id={selectedModel}
+                                                        negativePrompt={negativePrompt}
+                                                        loraStack={loraStack}
+                                                        steps={steps}
+                                                        cfgScale={cfgScale}
+                                                        samplerType={samplerType}
+                                                        onGenerated={(blob, filename, params) => {
+                                                            const audioUrl = URL.createObjectURL(blob);
+                                                            const newFrag = {
+                                                                id: Date.now(),
+                                                                prompt: params.prompt,
+                                                                duration: params.duration,
+                                                                cfgScale: params.cfg_scale,
+                                                                steps: params.steps,
+                                                                seed: params.seed,
+                                                                modelId: params.model_id,
+                                                                batchIndex: 1,
+                                                                batchTotal: 1,
+                                                                audioUrl,
+                                                                audioBlob: blob,
+                                                                filename,
+                                                                timestamp: new Date().toLocaleString(),
+                                                                createdAt: Date.now(),
+                                                                editMode: null,
                                                             };
                                                             setGeneratedFragments(prev => {
                                                                 const next = [...prev, newFrag];

@@ -487,6 +487,18 @@ def generate_audio():
             cfg_raw, 'cfg_scale', min_value=0.1, max_value=20.0
         ) if cfg_raw is not None else None
 
+        sampler_type = data.get('sampler_type')
+        if sampler_type is not None and sampler_type not in ('euler', 'rk4', 'dpmpp', 'pingpong'):
+            return jsonify(APIResponse.error(
+                f"sampler_type must be one of: euler, rk4, dpmpp, pingpong; got {sampler_type!r}.",
+                status_code=400)), 400
+
+        dist_shift = data.get('dist_shift')
+        if dist_shift is not None and dist_shift not in ('logsnr', 'flux', 'none'):
+            return jsonify(APIResponse.error(
+                f"dist_shift must be one of: logsnr, flux, none; got {dist_shift!r}.",
+                status_code=400)), 400
+
         negative_prompt_raw = data.get('negative_prompt')
         negative_prompt = Validator.string(
             negative_prompt_raw, 'negative_prompt', min_length=0, max_length=500
@@ -518,6 +530,7 @@ def generate_audio():
         try:
             init_audio_path = _resolve_src(data.get('init_audio_path'))
             inpaint_audio_path = _resolve_src(data.get('inpaint_audio_path'))
+            ref_audio_path = _resolve_src(data.get('ref_audio_path'))
         except FileNotFoundError as e:
             return jsonify(APIResponse.error(str(e), status_code=400)), 400
 
@@ -670,6 +683,12 @@ def generate_audio():
             loop_stitch=loop_stitch,
             loop_bars=int(align_bars) if (loop_stitch and align_bars) else None,
             loop_bpm=float(align_bpm) if (loop_stitch and align_bpm) else None,
+            sampler_type=sampler_type,
+            ref_audio_path=ref_audio_path,
+            ref_inject_mode=data.get('ref_inject_mode', 'inject'),
+            ref_layer_strengths=data.get('ref_layer_strengths'),
+            ref_step_taper=data.get('ref_step_taper', 'none'),
+            ref_time_taper=data.get('ref_time_taper', 'none'),
         )
 
         if not output_path.exists():
@@ -714,6 +733,7 @@ def generate_audio():
                 "inpaint_audio_path": inpaint_audio_path,
                 "inpaint_starts": list(inpaint_starts) if inpaint_starts else None,
                 "inpaint_ends": list(inpaint_ends) if inpaint_ends else None,
+                "ref_audio_path": ref_audio_path,
                 "edit_mode": edit_mode,
             }
             with open(sidecar_path, "w") as f:
