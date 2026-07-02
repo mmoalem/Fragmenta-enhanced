@@ -29,6 +29,13 @@ import soundfile as sf
 import torch
 
 from utils.logger import get_logger
+
+# Vendored SA3 lives at <repo>/vendor/stable-audio-3 — put it on sys.path so
+# `import stable_audio_3` resolves without a global pip install.
+_SA3_VENDOR = Path(__file__).resolve().parents[3] / "vendor" / "stable-audio-3"
+if str(_SA3_VENDOR) not in sys.path:
+    sys.path.insert(0, str(_SA3_VENDOR))
+
 from .ref_inject import RefInjectModelWrapper
 
 logger = get_logger("AudioGenerator")
@@ -81,11 +88,7 @@ def _reset_progress() -> None:
             "started_at": None, "ended_at": None, "error": None,
         })
 
-# Vendored SA3 lives at <repo>/vendor/stable-audio-3 — put it on sys.path so
-# `import stable_audio_3` resolves without a global pip install.
-_SA3_VENDOR = Path(__file__).resolve().parents[3] / "vendor" / "stable-audio-3"
-if str(_SA3_VENDOR) not in sys.path:
-    sys.path.insert(0, str(_SA3_VENDOR))
+
 
 
 # model_id -> (sa3_name passed to StableAudioModel.from_pretrained,
