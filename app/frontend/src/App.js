@@ -2455,24 +2455,22 @@ function App() {
                                                                 </Box>
                                                             </Grid>
 
-                                                            {!isDistilledBase && (
-                                                                <Grid item xs={12}>
-                                                                    <Tooltip title={TIPS.generate.sampler}>
-                                                                        <Typography gutterBottom sx={{ width: 'fit-content' }}>Sampler</Typography>
-                                                                    </Tooltip>
-                                                                    <Select
-                                                                        value={samplerType}
-                                                                        onChange={(e) => setSamplerType(e.target.value)}
-                                                                        size="small"
-                                                                        fullWidth
-                                                                    >
-                                                                        <MenuItem value="euler">Euler</MenuItem>
-                                                                        <MenuItem value="rk4">RK4</MenuItem>
-                                                                        <MenuItem value="dpmpp">DPM++</MenuItem>
-                                                                        <MenuItem value="pingpong">PingPong</MenuItem>
-                                                                    </Select>
-                                                                </Grid>
-                                                            )}
+                                                            <Grid item xs={12}>
+                                                                <Tooltip title={TIPS.generate.sampler}>
+                                                                    <Typography gutterBottom sx={{ width: 'fit-content' }}>Sampler</Typography>
+                                                                </Tooltip>
+                                                                <Select
+                                                                    value={samplerType}
+                                                                    onChange={(e) => setSamplerType(e.target.value)}
+                                                                    size="small"
+                                                                    fullWidth
+                                                                >
+                                                                    <MenuItem value="euler">Euler</MenuItem>
+                                                                    <MenuItem value="rk4">RK4</MenuItem>
+                                                                    <MenuItem value="dpmpp">DPM++</MenuItem>
+                                                                    <MenuItem value="pingpong">PingPong</MenuItem>
+                                                                </Select>
+                                                            </Grid>
 
                                                             <Grid item xs={12}>
                                                                 <Tooltip title={TIPS.generate.seed}>
