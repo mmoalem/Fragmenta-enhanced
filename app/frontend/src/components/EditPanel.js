@@ -14,7 +14,7 @@ import {
     Switch,
     FormControlLabel,
 } from '@mui/material';
-import { Upload as UploadIcon, X as ClearIcon, Play as PlayIcon, Square as StopIcon } from 'lucide-react';
+import { Upload as UploadIcon, X as ClearIcon, Play as PlayIcon, Square as StopIcon, Volume2 as NormalizeIcon } from 'lucide-react';
 import api from '../api';
 import AudioWaveform from './AudioWaveform';
 import Tooltip from './Tooltip';
@@ -102,6 +102,7 @@ export default function EditPanel({ model_id, negativePrompt, loraStack, steps, 
     const [sourceDurationSec, setSourceDurationSec] = useState(null);
 
     const [generating, setGenerating] = useState(false);
+    const [normalising, setNormalising] = useState(false);
     const [error, setError] = useState(null);
     const fileInputRef = useRef(null);
 
@@ -258,6 +259,74 @@ export default function EditPanel({ model_id, negativePrompt, loraStack, steps, 
         setSourceDurationSec(null);
     };
 
+    // --- normalise -------------------------------------------------------
+    // Decode the source audio, find peak amplitude, scale so peak hits 0.95
+    // of full scale, re-encode to WAV, and re-upload (replacing the source).
+    const normaliseAudio = async () => {
+        if (!sourceFile) return;
+        setNormalising(true);
+        setError(null);
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        try {
+            const arrayBuffer = await sourceFile.arrayBuffer();
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+
+            let peak = 0;
+            for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+                const chan = audioBuffer.getChannelData(ch);
+                for (let i = 0; i < chan.length; i++) {
+                    peak = Math.max(peak, Math.abs(chan[i]));
+                }
+            }
+
+            // Peak already near target (~0.95) or audio is silent — skip.
+            if (peak < 1e-10 || peak >= 0.93) {
+                setNormalising(false);
+                return;
+            }
+
+            const gain = 0.95 / peak;
+            const nCh = audioBuffer.numberOfChannels;
+            const length = audioBuffer.length;
+            const sr = audioBuffer.sampleRate;
+            const outBuf = audioCtx.createBuffer(nCh, length, sr);
+            for (let ch = 0; ch < nCh; ch++) {
+                const src = audioBuffer.getChannelData(ch);
+                const dst = outBuf.getChannelData(ch);
+                for (let i = 0; i < length; i++) dst[i] = src[i] * gain;
+            }
+
+            // Encode to WAV (16-bit PCM).
+            const numSamples = length * nCh;
+            const buf = new ArrayBuffer(44 + numSamples * 2);
+            const v = new DataView(buf);
+            const w = (off, str) => { for (let i = 0; i < str.length; i++) v.setUint8(off + i, str.charCodeAt(i)); };
+            w(0, 'RIFF'); v.setUint32(4, 36 + numSamples * 2, true);
+            w(8, 'WAVE'); w(12, 'fmt ');
+            v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+            v.setUint16(22, nCh, true); v.setUint32(24, sr, true);
+            v.setUint32(28, sr * nCh * 2, true);
+            v.setUint16(32, nCh * 2, true); v.setUint16(34, 16, true);
+            w(36, 'data'); v.setUint32(40, numSamples * 2, true);
+            for (let ch = 0; ch < nCh; ch++) {
+                const chan = outBuf.getChannelData(ch);
+                for (let i = 0; i < length; i++) {
+                    const s = Math.max(-1, Math.min(1, chan[i]));
+                    v.setInt16(44 + (i * nCh + ch) * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+                }
+            }
+
+            const blob = new Blob([buf], { type: 'audio/wav' });
+            const file = new File([blob], sourceName.replace(/\.[^.]+$/, '') + '_normalised.wav', { type: 'audio/wav' });
+            await uploadFile(file);
+        } catch (err) {
+            setError('Normalisation failed: ' + (err.message || err));
+        } finally {
+            audioCtx.close();
+            setNormalising(false);
+        }
+    };
+
     // --- generate --------------------------------------------------------
     const generate = async () => {
         if (!model_id) {
@@ -391,6 +460,15 @@ export default function EditPanel({ model_id, negativePrompt, loraStack, steps, 
                             {sourceName}
                             {sourceDurationSec && ` · ${sourceDurationSec.toFixed(2)}s`}
                         </Typography>
+                        <IconButton
+                            size="small"
+                            onClick={normaliseAudio}
+                            disabled={normalising}
+                            aria-label="Normalise volume"
+                            sx={{ color: 'success.main' }}
+                        >
+                            <NormalizeIcon size={14} />
+                        </IconButton>
                         <IconButton size="small" onClick={clearSource} aria-label="Remove source"><ClearIcon size={14} /></IconButton>
                     </Stack>
                 ) : (

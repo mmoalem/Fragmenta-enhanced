@@ -1350,7 +1350,21 @@ function App() {
                                 <Typography variant="h4" component="h1" sx={appStyles.title}>
                                     Fragmenta
                                 </Typography>
-
+                                <Typography
+                                    variant="caption"
+                                    sx={{
+                                        display: 'block',
+                                        fontSize: '0.6rem',
+                                        color: 'text.secondary',
+                                        letterSpacing: '0.18em',
+                                        textTransform: 'uppercase',
+                                        mt: -0.3,
+                                        fontFamily: '"Inter Tight", system-ui, sans-serif',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    Enhanced
+                                </Typography>
                             </Box>
                         </Box>
 

@@ -53,6 +53,9 @@ export default function AboutDialog({
                     <Typography variant="h5" component="span" sx={appStyles.title}>
                         Fragmenta
                     </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', letterSpacing: '0.18em', textTransform: 'uppercase', fontFamily: '"Inter Tight", system-ui, sans-serif', fontWeight: 500, mt: -0.5 }}>
+                        Enhanced
+                    </Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', letterSpacing: '0.04em' }}>
                         v{APP_VERSION}
                     </Typography>
@@ -60,7 +63,7 @@ export default function AboutDialog({
             </DialogTitle>
             <DialogContent>
                 <Typography sx={appStyles.infoDialogIntro}>
-                    Fragmenta is an open source, local-first suit to prepare datasets, train, generate and perform with text-to-audio diffusion models.
+                    Fragmenta Enhanced is an open source, local-first suit to prepare datasets, train, generate and perform with text-to-audio diffusion models.
                     Made by the composer and researcher Misagh Azimi.
                 </Typography>
 

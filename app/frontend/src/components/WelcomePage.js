@@ -44,7 +44,7 @@ export default function WelcomePage({ open, onClose }) {
                         component="h1"
                         sx={welcomePageStyles.title}
                     >
-                        Welcome to Fragmenta
+                        Welcome to Fragmenta Enhanced
                     </Typography>
                 </Fade>
 

@@ -174,10 +174,10 @@ export const TIPS = {
 
     // MidiConfigMenu.js — MIDI device + mapping config.
     midi: {
-        device: 'Which connected MIDI controller Fragmenta listens to. "None" disables MIDI input. Unplugged-but-remembered devices reconnect automatically when plugged back in.',
+        device: 'Which connected MIDI controller Fragmenta Enhanced listens to. "None" disables MIDI input. Unplugged-but-remembered devices reconnect automatically when plugged back in.',
         channelFilter: 'Which MIDI channel to accept. "All" reacts to every channel; pick a specific one (1–16) when several devices share the port or you want to isolate a controller.',
         takeover: 'How a knob takes control when its hardware position differs from the on-screen value. Jump snaps to the hardware on first move (can leap). Pickup waits until you sweep through the current value, so there\'s no jump.',
-        mappings: 'Every hardware control you\'ve bound to a Fragmenta control. Enter MIDI mode, click a control, then move a knob/button to add one here.',
+        mappings: 'Every hardware control you\'ve bound to a Fragmenta Enhanced control. Enter MIDI mode, click a control, then move a knob/button to add one here.',
         clearAll: 'Remove every MIDI mapping at once. The device connection and filters stay.',
         removeMapping: 'Delete just this one mapping.',
     },
@@ -185,7 +185,7 @@ export const TIPS = {
     // CheckpointManagerWindow.js — model download manager.
     manager: {
         storage: 'See how much disk each downloaded model and checkpoint is using, and free space by removing ones you don\'t need.',
-        hfLogin: 'Sign in to HuggingFace so Fragmenta can fetch gated or private checkpoints on your account. Stored locally; used only for downloads.',
+        hfLogin: 'Sign in to HuggingFace so Fragmenta Enhanced can fetch gated or private checkpoints on your account. Stored locally; used only for downloads.',
         hfLogout: 'Forget the saved HuggingFace token on this machine.',
         hfToken: 'Paste a HuggingFace access token (starts with "hf_"). Create one at huggingface.co/settings/tokens — read scope is enough for downloads.',
         refresh: 'Re-scan the catalog and disk for which models are downloaded, in case something changed outside the app.',

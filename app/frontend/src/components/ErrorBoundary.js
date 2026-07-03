@@ -50,7 +50,7 @@ export default class ErrorBoundary extends React.Component {
                         fontSize: 14,
                     }}
                 >
-                    Reload Fragmenta
+                    Reload Fragmenta Enhanced
                 </button>
             </div>
         );
