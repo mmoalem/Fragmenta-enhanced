@@ -58,8 +58,7 @@ Sigma schedule warping that controls how denoising steps are distributed:
 
 Circular import between `model.py` and `utils.py` in the vendored SA3 LoRA module resolved — required for the LoRA system to load at all.
 
-> **LoRA architecture compatibility.** LoRAs are not interchangeable between model architectures. A LoRA trained on `sa3-medium` (24-layer DiT, embed_dim=1536) **cannot** load into `sa3-medium-base` (20-layer DiT, embed_dim=1024), or vice versa. The same applies between `*-small-music` and `*-small-sfx` (12-layer, embed_dim=1024, but different objective / conditioning).  
-> When attaching a LoRA, verify the `base_model` metadata matches the checkpoint you are generating from. The app filters LoRAs by architecture and shows a clear error on mismatch.
+> **LoRA architecture compatibility.** The app pairs LoRAs to checkpoints by stripping the `-base` suffix before comparing, so a LoRA trained on `sa3-medium` works with both `sa3-medium` and `sa3-medium-base` (same DiT backbone, only CFG distillation state differs). The same logic applies to the small variants. What *is* incompatible: `*-small-music` LoRAs will not load onto `*-small-sfx` checkpoints, or vice versa, because music and SFX have fundamentally different conditioning objectives despite sharing the same layer/embed dimensions. When in doubt, check the LoRA's `base_model` metadata key — the app shows a clear error on true mismatches.
 
 ---
 
