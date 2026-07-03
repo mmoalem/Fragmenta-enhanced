@@ -28,7 +28,7 @@ ODE solvers for diffusion sampling. Listed in increasing order of quality / cost
 | **RK4** | 4th-order Runge-Kutta | Most accurate fixed-step |
 | **DPM++** | Multi-step predictor-corrector | Recommended quality/speed balance |
 | **PingPong** | Re-noising ODE | Distilled-model default; re-noises each step to stay on-manifold |
-| **STORM** | Adaptive stiffness-switching hybrid | Dispatches per-step between STORK (stiff RK2-5) and DPM++3M (smooth); best quality, auto-calibrated |
+| **STORM** | Adaptive stiffness-switching hybrid | Dispatches per-step between STORK (stiff RK2-5) and DPM++3M (smooth); best quality, auto-calibrated — [upstream](https://github.com/MDMAchine/STORM-Sampler) by Alexander Allan (MDMAchine) |
 
 > **Note on sampler behaviour by model type.**  
 > In our tests on `sa3-medium` (the post-trained 24-layer distilled model), **PingPong** is the only sampler that consistently produces clean output. Euler, Heun, Midpoint, RK4, and DPM++ produce varying degrees of amplification / compression artefacts.  
@@ -46,7 +46,7 @@ Sigma schedule warping that controls how denoising steps are distributed:
 | **Beta** | Beta(0.7, 0.7) CDF warp; gentle U-shape |
 | **LogSNR** | Uniform in log-SNR space; concentrates at low noise |
 | **Flux** | Flux-style parametric shift; concentrates at high noise |
-| **HAP** | Hamiltonian Action-Principle physics simulation; particle-in-potential-well curve (ω=1.5, γ=3.0) |
+| **HAP** | Hamiltonian Action-Principle physics simulation | Particle-in-potential-well curve (ω=1.5, γ=3.0) — [upstream](https://github.com/MDMAchine/MD-HAP-Scheduler) by Alexander Allan (MDMAchine) |
 
 ### Generation UI
 

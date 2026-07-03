@@ -118,7 +118,16 @@ export default function LoraStack({ selectedModel, value, onChange }) {
                     <Typography variant="subtitle1">LoRA Stack</Typography>
                 </Tooltip>
             </AccordionSummary>
-            <AccordionDetails>
+            <AccordionDetails
+                onWheel={(e) => {
+                    const el = e.currentTarget;
+                    const atTop = el.scrollTop === 0;
+                    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+                    if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) return;
+                    e.stopPropagation();
+                }}
+                sx={{ maxHeight: 400, overflow: 'auto' }}
+            >
             {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
             {hint && (
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
