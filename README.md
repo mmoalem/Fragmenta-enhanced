@@ -16,6 +16,8 @@ Fragmenta Enhanced is a feature fork built on [Fragmenta](https://github.com/MAz
 
 ## Additions vs. Upstream
 
+All enhancements described below are concentrated in the **Generation tab**. Every other tab — Dataset, Training, Performance — behaves identically to upstream Fragmenta.
+
 ### Samplers
 
 ODE solvers for diffusion sampling. Listed in increasing order of quality / cost:
