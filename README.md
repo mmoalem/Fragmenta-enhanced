@@ -10,35 +10,56 @@
 
 </div>
 
-Fragmenta Enhanced is a feature fork built on [Fragmenta](https://github.com/MAz-Codes/fragmenta) by [Misagh Azimi](https://www.misaghazimi.com). It extends the original with experimental generation modes, additional sampler options, and deeper model-level control — while remaining fully compatible with the upstream workflow.
+Fragmenta Enhanced is a feature fork built on [Fragmenta](https://github.com/MAz-Codes/fragmenta) by [Misagh Azimi](https://www.misaghazimi.com). It extends the original with additional ODE solvers, advanced sigma schedulers, deeper model-level control, and quality-of-life UI improvements — while remaining fully compatible with the upstream workflow.
 
 ---
 
 ## Additions vs. Upstream
 
-### Per-Step Self-Attention KV Injection (Reference Injection)
+### Samplers
 
-A new generation mode that guides diffusion by injecting self-attention Key/Value pairs from a reference audio clip into each transformer layer at every denoising step.
+ODE solvers for diffusion sampling. Listed in increasing order of quality / cost:
 
-- **Two-pass sampling**: reference audio → null-conditioned capture pass → generation pass with injected K/V states
-- **Per-layer strength controls**: 12 individual sliders (0–3) for each SA3 DiT transformer layer
-- **Injection modes**: `inject` (blend), `replace` (overwrite), `threshold` (attention-score gated)
-- **Step / time tapering**: cosine, linear, or none — control how injection strength evolves across denoising steps and the generated timeline
+| Sampler | Type | Profile |
+|---|---|---|
+| **Euler** | 1st-order | Fastest baseline |
+| **Heun** | 2nd-order improved Euler | Cleaner than Euler, 2 NFE/step |
+| **Midpoint** | 2nd-order RK | Efficient, 1.5 NFE/step average |
+| **RK4** | 4th-order Runge-Kutta | Most accurate fixed-step |
+| **DPM++** | Multi-step predictor-corrector | Recommended quality/speed balance |
+| **PingPong** | Re-noising ODE | Distilled-model default; re-noises each step to stay on-manifold |
+| **STORM** | Adaptive stiffness-switching hybrid | Dispatches per-step between STORK (stiff RK2-5) and DPM++3M (smooth); best quality, auto-calibrated |
 
-Ported from ComfyUI's `per_step_inject_per_layer` node architecture, adapted for SA3's 12-layer DiT with fused QKV projections.
+> **Note on sampler behaviour by model type.**  
+> In our tests on `sa3-medium` (the post-trained 24-layer distilled model), **PingPong** is the only sampler that consistently produces clean output. Euler, Heun, Midpoint, RK4, and DPM++ produce varying degrees of amplification / compression artefacts.  
+> *Why?* The distilled model was trained on a trajectory that expects a re-noising step at each denoising iteration — `x = (1−t)·denoised + t·noise` — which PingPong provides. Solvers that integrate the velocity directly (`x += dt·v`) drift off the training manifold, and the model outputs incorrect velocity on inputs it was never trained on, causing error accumulation.  
+> On `sa3-medium-base` (the non-distilled 20-layer rectified-flow model), all samplers work correctly because the base model learns the full continuous velocity field. The other solvers are included for experimentation on base models and future distilled checkpoints that may use different training objectives.
 
-### Sampler Selection
+### Schedules
 
-Exposes the full suite of ODE solvers available in SA3:
+Sigma schedule warping that controls how denoising steps are distributed:
 
-- **Euler** — simple, fast, lowest quality
-- **RK4** — 4th-order Runge-Kutta, slower but more accurate trajectories
-- **DPM++** — recommended quality/speed balance
-- **PingPong** — alternates forward/backward trajectories for smoother convergence
+| Schedule | Description |
+|---|---|
+| **Linear** | Even spacing (default) |
+| **Karras** | ρ=7 power-law; concentrates steps at low noise for detail |
+| **Beta** | Beta(0.7, 0.7) CDF warp; gentle U-shape |
+| **LogSNR** | Uniform in log-SNR space; concentrates at low noise |
+| **Flux** | Flux-style parametric shift; concentrates at high noise |
+| **HAP** | Hamiltonian Action-Principle physics simulation; particle-in-potential-well curve (ω=1.5, γ=3.0) |
+
+### Generation UI
+
+- **Metadata inspection panel**: click a fragment in the Generated Fragments list to expand its full generation parameters (sampler, schedule, steps, CFG, seed, model, duration).
+- **Unlocked controls**: CFG scale, steps, and sampler dropdown are fully adjustable on all models (including distilled). Model switch sets sensible defaults; user overrides are preserved.
+- **Continuous steps slider**: step=1 granularity (not just integers) for fine-grained quality/speed tuning.
 
 ### LoRA System Fix
 
 Circular import between `model.py` and `utils.py` in the vendored SA3 LoRA module resolved — required for the LoRA system to load at all.
+
+> **LoRA architecture compatibility.** LoRAs are not interchangeable between model architectures. A LoRA trained on `sa3-medium` (24-layer DiT, embed_dim=1536) **cannot** load into `sa3-medium-base` (20-layer DiT, embed_dim=1024), or vice versa. The same applies between `*-small-music` and `*-small-sfx` (12-layer, embed_dim=1024, but different objective / conditioning).  
+> When attaching a LoRA, verify the `base_model` metadata matches the checkpoint you are generating from. The app filters LoRAs by architecture and shows a clear error on mismatch.
 
 ---
 
@@ -89,15 +110,14 @@ fragmenta/
 │   │   └── src/             # React source (development only)
 │   └── core/
 │       └── generation/
-│           ├── audio_generator.py   # Sampler selection, ref-injection wiring
-│           └── ref_inject.py        # RefInjectModelWrapper (two-pass DiT wrapper)
+│           └── audio_generator.py   # Sampler/schedule dispatch, model loading
 ├── vendor/
 │   └── stable-audio-3/
 │       └── models/
 │           ├── lora/                # (circular import fix)
-│           └── injection/           # InjectionHookManager (per-step KV capture/inject)
-├── models/
-├── config/
+├── models/               # Checkpoint storage (HF cache + flat layout)
+├── config/                # LoRA config, app settings
+├── output/                # Generated audio, uploads, recordings
 ├── fragmenta.sh / .bat / .command
 ├── install.py
 └── start.py
@@ -116,4 +136,5 @@ This fork is licensed under the **GNU Affero General Public License v3.0**, inhe
 ### Third-Party
 
 - **Stable Audio 3** by Stability AI — model weights under the [Stability AI Community License](https://stability.ai/community-license-agreement); vendored inference code under MIT.
-- **Per-step injection pattern** ported from [ComfyUI BitsAndBots / ace_step_reference](https://github.com/BitsAndBobs-LLC/ComfyuAudioNodes-BitsAndBobs) (architecture reference, not vendored code).
+- **[STORM Sampler](https://github.com/MDMAchine/STORM-Sampler)** by Alexander Allan (MDMAchine) — adaptive stiffness-switching ODE solver, GPL v3.
+- **[MD-HAP Scheduler](https://github.com/MDMAchine/MD-HAP-Scheduler)** by Alexander Allan (MDMAchine) — Hamiltonian action-principle sigma schedule, GPL v3.

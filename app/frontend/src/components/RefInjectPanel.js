@@ -25,6 +25,8 @@ const SA3_LAYERS = 12;
 export default function RefInjectPanel({ model_id, negativePrompt, loraStack, steps, cfgScale, samplerType = 'euler', distShift = 'none', onGenerated }) {
     const [prompt, setPrompt] = useState('');
     const [duration, setDuration] = useState(10);
+    const [useFixedSeed, setUseFixedSeed] = useState(false);
+    const [fixedSeed, setFixedSeed] = useState(42);
     const [refAudioPath, setRefAudioPath] = useState('');
     const [refAudioName, setRefAudioName] = useState('');
     const [mode, setMode] = useState('inject');
@@ -58,6 +60,10 @@ export default function RefInjectPanel({ model_id, negativePrompt, loraStack, st
             const resp = await api.post('/api/audio/upload', formData);
             setRefAudioPath(resp.data.path);
             setRefAudioName(file.name);
+            if (resp.data.duration_seconds > 0) {
+                const rounded = Math.round(resp.data.duration_seconds);
+                setDuration(Math.max(1, Math.min(120, rounded)));
+            }
         } catch (err) {
             setError('Upload failed: ' + (err.response?.data?.error?.message || err.message));
         }
@@ -96,6 +102,7 @@ export default function RefInjectPanel({ model_id, negativePrompt, loraStack, st
             const body = {
                 model_id,
                 prompt: prompt.trim(),
+                seed: useFixedSeed ? fixedSeed : -1,
                 duration,
                 steps,
                 ref_audio_path: refAudioPath,
@@ -106,7 +113,7 @@ export default function RefInjectPanel({ model_id, negativePrompt, loraStack, st
                 ref_time_taper: timeTaper,
             };
             if (negativePrompt) body.negative_prompt = negativePrompt;
-            if (!isDistilledBase) body.cfg_scale = cfgScale;
+            body.cfg_scale = cfgScale;
             if (activeLoras.length) {
                 body.loras = activeLoras.map(s => ({
                     path: s.path,
@@ -202,6 +209,28 @@ export default function RefInjectPanel({ model_id, negativePrompt, loraStack, st
                 <Stack direction="row" spacing={2} alignItems="center">
                     <Slider value={duration} onChange={(_, v) => setDuration(v)} min={1} max={120} step={1} valueLabelDisplay="auto" sx={{ flex: 1 }} />
                     <Typography variant="body2" color="text.secondary">{duration}s</Typography>
+                </Stack>
+            )}
+
+            {/* Seed */}
+            {gridItem('Seed', 'Fixed seed for reproducible generation. Disable for random seed each run.',
+                <Stack direction="row" spacing={1} alignItems="center">
+                    {useFixedSeed ? (
+                        <TextField
+                            type="number"
+                            size="small"
+                            value={fixedSeed}
+                            onChange={(e) => setFixedSeed(parseInt(e.target.value, 10) || 0)}
+                            inputProps={{ min: 0, max: 2147483647, step: 1 }}
+                            sx={{ width: 120 }}
+                        />
+                    ) : (
+                        <Typography variant="body2" color="text.secondary">Random</Typography>
+                    )}
+                    <Button size="small" variant={useFixedSeed ? 'contained' : 'outlined'}
+                        onClick={() => setUseFixedSeed(!useFixedSeed)}>
+                        {useFixedSeed ? 'Locked' : 'Lock'}
+                    </Button>
                 </Stack>
             )}
 

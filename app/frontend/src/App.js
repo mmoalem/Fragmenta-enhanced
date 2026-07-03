@@ -71,7 +71,7 @@ import TrainingMonitor from './components/TrainingMonitor';
 import CheckpointManagerWindow from './components/CheckpointManagerWindow';
 import LoraStack from './components/LoraStack';
 import EditPanel from './components/EditPanel';
-import RefInjectPanel from './components/RefInjectPanel';
+
 import GeneratedFragmentsWindow from './components/GeneratedFragmentsWindow';
 import WelcomePage from './components/WelcomePage';
 import { formatDuration } from './utils/format';
@@ -553,13 +553,16 @@ function App() {
         if (generationDuration > maxDuration) {
             setGenerationDuration(maxDuration);
         }
-        // SA3 post-trained models run at 8 steps with CFG=1.0; base variants
-        // want ~50 steps with CFG~7. Snap the slider so the UI reflects what
-        // will actually run.
-        if (isDistilledBase && steps !== 8) {
-            setSteps(8);
-        } else if (!isDistilledBase && steps < 50) {
-            setSteps(50);
+        // Set model-appropriate defaults when switching. The user can
+        // freely override after — these are not locks.
+        if (isDistilledBase) {
+            if (steps !== 8) setSteps(8);
+            if (cfgScale !== 1.0) setCfgScale(1.0);
+            if (samplerType !== 'pingpong') setSamplerType('pingpong');
+        } else {
+            if (steps < 50) setSteps(50);
+            if (cfgScale !== 7.0) setCfgScale(7.0);
+            if (samplerType !== 'euler') setSamplerType('euler');
         }
     }, [selectedModel, isDistilledBase]);
 
@@ -982,13 +985,9 @@ function App() {
                     : (s.strengths || { sa: s.strength || 1.0, ca: s.strength || 1.0, mlp: s.strength || 1.0 }),
             }));
         }
-        // SA3 post-trained models bake CFG at 1.0 — only the *-base variants
-        // honour cfg_scale. Sending it on a post-trained model is harmless
-        // (backend forces 1.0), but we only attach it for base variants so
-        // the UI matches what the backend will use.
-        if (!isDistilledBase) {
-            baseRequestData.cfg_scale = cfgScale;
-        }
+        // CFG is user-settable for all models (distilled models previously
+        // forced 1.0, but the backend now accepts the override).
+        baseRequestData.cfg_scale = cfgScale;
 
         const baseModel = baseModels.find(m => m.name === selectedModel);
         if (baseModel) {
@@ -1122,6 +1121,8 @@ function App() {
                     steps,
                     seed: seedForRun,
                     modelId: selectedModel,
+                    samplerType,
+                    distShift,
                     batchIndex,
                     batchTotal: totalRuns,
                     audioUrl,
@@ -2274,7 +2275,6 @@ function App() {
                                                     >
                                                         <ToggleButton value="create">Generate new</ToggleButton>
                                                         <ToggleButton value="edit">Edit existing</ToggleButton>
-                                                        <ToggleButton value="ref-inject">Ref. injection</ToggleButton>
                                                     </ToggleButtonGroup>
                                                     </Tooltip>
                                                 </Box>
@@ -2367,52 +2367,51 @@ function App() {
                                                                 </Tooltip>
                                                             </Grid>
 
-                                                            {/* CFG + Steps are only meaningful on *-base checkpoints.
-                                                                Distilled post-trained models bake cfg=1.0 / steps=8 and
-                                                                ignore overrides, so we hide the controls entirely. */}
-                                                            {!isDistilledBase && (
-                                                                <>
-                                                                    <Grid item xs={12}>
-                                                                        <Tooltip title={TIPS.generate.cfg}>
-                                                                            <Typography gutterBottom sx={{ width: 'fit-content' }}>CFG Scale</Typography>
-                                                                        </Tooltip>
-                                                                        <Box sx={appStyles.sliderRow}>
-                                                                            <Slider
-                                                                                value={cfgScale}
-                                                                                onChange={(e, value) => setCfgScale(value)}
-                                                                                min={0.1}
-                                                                                max={20}
-                                                                                step={0.1}
-                                                                                valueLabelDisplay="auto"
-                                                                                sx={appStyles.sliderFlexGrow}
-                                                                            />
-                                                                            <TextField
-                                                                                type="number"
-                                                                                value={cfgScale}
-                                                                                onChange={(e) => {
-                                                                                    const val = parseFloat(e.target.value);
-                                                                                    if (Number.isNaN(val)) return;
-                                                                                    setCfgScale(Math.max(0.1, Math.min(20, val)));
-                                                                                }}
-                                                                                inputProps={{ min: 0.1, max: 20, step: 0.1 }}
-                                                                                sx={appStyles.sliderInputSmall}
-                                                                                size="small"
-                                                                            />
-                                                                        </Box>
-                                                                    </Grid>
+                                                            {/* CFG + Steps — visible for all models. Distilled models
+                                                                previously hid these (baked CFG=1.0 / steps=8), but both
+                                                                are now user-overridable. */}
+                                                            <Grid item xs={12}>
+                                                                <Tooltip title={TIPS.generate.cfg}>
+                                                                    <Typography gutterBottom sx={{ width: 'fit-content' }}>CFG Scale</Typography>
+                                                                </Tooltip>
+                                                                <Box sx={appStyles.sliderRow}>
+                                                                    <Slider
+                                                                        value={cfgScale}
+                                                                        onChange={(e, value) => setCfgScale(value)}
+                                                                        min={0.1}
+                                                                        max={20}
+                                                                        step={0.1}
+                                                                        valueLabelDisplay="auto"
+                                                                        sx={appStyles.sliderFlexGrow}
+                                                                    />
+                                                                    <TextField
+                                                                        type="number"
+                                                                        value={cfgScale}
+                                                                        onChange={(e) => {
+                                                                            const val = parseFloat(e.target.value);
+                                                                            if (Number.isNaN(val)) return;
+                                                                            setCfgScale(Math.max(0.1, Math.min(20, val)));
+                                                                        }}
+                                                                        inputProps={{ min: 0.1, max: 20, step: 0.1 }}
+                                                                        sx={appStyles.sliderInputSmall}
+                                                                        size="small"
+                                                                    />
+                                                                </Box>
+                                                            </Grid>
 
-                                                                    <Grid item xs={12}>
-                                                                        <Tooltip title={TIPS.generate.steps}>
-                                                                            <Typography gutterBottom sx={{ width: 'fit-content' }}>Inference Steps</Typography>
-                                                                        </Tooltip>
-                                                                        <Box sx={appStyles.sliderRow}>
-                                                                            <Slider
-                                                                                value={steps}
-                                                                                onChange={(e, value) => setSteps(value)}
-                                                                                min={20}
-                                                                                max={250}
-                                                                                step={null}
+                                                            <Grid item xs={12}>
+                                                                <Tooltip title={TIPS.generate.steps}>
+                                                                    <Typography gutterBottom sx={{ width: 'fit-content' }}>Inference Steps</Typography>
+                                                                </Tooltip>
+                                                                <Box sx={appStyles.sliderRow}>
+                                                                    <Slider
+                                                                        value={steps}
+                                                                        onChange={(e, value) => setSteps(value)}
+                                                                        min={8}
+                                                                        max={250}
+                                                                                step={1}
                                                                                 marks={[
+                                                                                    { value: 8, label: '8' },
                                                                                     { value: 20, label: '20' },
                                                                                     { value: 50, label: '50' },
                                                                                     { value: 100, label: '100' },
@@ -2420,13 +2419,11 @@ function App() {
                                                                                     { value: 200, label: '200' },
                                                                                     { value: 250, label: '250' },
                                                                                 ]}
-                                                                                valueLabelDisplay="auto"
-                                                                                sx={appStyles.sliderFlexGrow}
-                                                                            />
-                                                                        </Box>
-                                                                    </Grid>
-                                                                </>
-                                                            )}
+                                                                        valueLabelDisplay="auto"
+                                                                        sx={appStyles.sliderFlexGrow}
+                                                                    />
+                                                                </Box>
+                                                            </Grid>
 
                                                             <Grid item xs={12}>
                                                                 <Tooltip title={TIPS.generate.batch}>
@@ -2467,10 +2464,13 @@ function App() {
                                                                     size="small"
                                                                     fullWidth
                                                                 >
-                                                                    <MenuItem value="euler">Euler</MenuItem>
+                                                                    <MenuItem value="euler">Euler{!isDistilledBase ? ' (default)' : ''}</MenuItem>
+                                                                    <MenuItem value="heun">Heun</MenuItem>
+                                                                    <MenuItem value="midpoint">Midpoint</MenuItem>
                                                                     <MenuItem value="rk4">RK4</MenuItem>
                                                                     <MenuItem value="dpmpp">DPM++</MenuItem>
-                                                                    <MenuItem value="pingpong">PingPong</MenuItem>
+                                                                    <MenuItem value="pingpong">PingPong{isDistilledBase ? ' (default)' : ''}</MenuItem>
+                                                                    <MenuItem value="storm">STORM</MenuItem>
                                                                 </Select>
                                                             </Grid>
                                                             <Grid item xs={12}>
@@ -2484,8 +2484,11 @@ function App() {
                                                                     fullWidth
                                                                 >
                                                                     <MenuItem value="none">Linear (default)</MenuItem>
+                                                                    <MenuItem value="karras">Karras</MenuItem>
+                                                                    <MenuItem value="beta">Beta</MenuItem>
                                                                     <MenuItem value="logsnr">LogSNR</MenuItem>
                                                                     <MenuItem value="flux">Flux</MenuItem>
+                                                                    <MenuItem value="hap">HAP</MenuItem>
                                                                 </Select>
                                                             </Grid>
 
@@ -2613,42 +2616,6 @@ function App() {
                                                         }}
                                                     />
                                                 )}
-
-                                                {generationMode === 'ref-inject' && (
-                                                    <RefInjectPanel
-                                                        model_id={selectedModel}
-                                                        negativePrompt={negativePrompt}
-                                                        loraStack={loraStack}
-                                                        steps={steps}
-                                                        cfgScale={cfgScale}
-                                                        samplerType={samplerType}
-                                                        distShift={distShift}
-                                                        onGenerated={(blob, filename, params) => {
-                                                            const audioUrl = URL.createObjectURL(blob);
-                                                            const newFrag = {
-                                                                id: Date.now(),
-                                                                prompt: params.prompt,
-                                                                duration: params.duration,
-                                                                cfgScale: params.cfg_scale,
-                                                                steps: params.steps,
-                                                                seed: params.seed,
-                                                                modelId: params.model_id,
-                                                                batchIndex: 1,
-                                                                batchTotal: 1,
-                                                                audioUrl,
-                                                                audioBlob: blob,
-                                                                filename,
-                                                                timestamp: new Date().toLocaleString(),
-                                                                createdAt: Date.now(),
-                                                                editMode: null,
-                                                            };
-                                                            setGeneratedFragments(prev => {
-                                                                const next = [...prev, newFrag];
-                                                                return next.length > 100 ? next.slice(next.length - 100) : next;
-                                                            });
-                                                        }}
-                                                    />
-                                                )}
                                             </Paper>
                                         </Box>
                                     </Grid>
@@ -2683,6 +2650,7 @@ function App() {
                                     onLoraMultiplierChange={setLoraMultiplier}
                                     steps={steps}
                                     onStepsChange={setSteps}
+                                    cfgScale={cfgScale}
                                     randomSeed={randomSeed}
                                     seedValue={seedValue}
                                     onRandomSeedChange={setRandomSeed}

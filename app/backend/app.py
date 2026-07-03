@@ -488,15 +488,15 @@ def generate_audio():
         ) if cfg_raw is not None else None
 
         sampler_type = data.get('sampler_type')
-        if sampler_type is not None and sampler_type not in ('euler', 'rk4', 'dpmpp', 'pingpong'):
+        if sampler_type is not None and sampler_type not in ('euler', 'rk4', 'dpmpp', 'pingpong', 'heun', 'midpoint', 'storm'):
             return jsonify(APIResponse.error(
-                f"sampler_type must be one of: euler, rk4, dpmpp, pingpong; got {sampler_type!r}.",
+                f"sampler_type must be one of: euler, rk4, dpmpp, pingpong, heun, midpoint, storm; got {sampler_type!r}.",
                 status_code=400)), 400
 
         dist_shift = data.get('dist_shift')
-        if dist_shift is not None and dist_shift not in ('logsnr', 'flux', 'none'):
+        if dist_shift is not None and dist_shift not in ('logsnr', 'flux', 'karras', 'beta', 'hap', 'none'):
             return jsonify(APIResponse.error(
-                f"dist_shift must be one of: logsnr, flux, none; got {dist_shift!r}.",
+                f"dist_shift must be one of: logsnr, flux, karras, beta, hap, none; got {dist_shift!r}.",
                 status_code=400)), 400
 
         negative_prompt_raw = data.get('negative_prompt')
@@ -684,6 +684,7 @@ def generate_audio():
             loop_bars=int(align_bars) if (loop_stitch and align_bars) else None,
             loop_bpm=float(align_bpm) if (loop_stitch and align_bpm) else None,
             sampler_type=sampler_type,
+            dist_shift=dist_shift,
             ref_audio_path=ref_audio_path,
             ref_inject_mode=data.get('ref_inject_mode', 'inject'),
             ref_layer_strengths=data.get('ref_layer_strengths'),
@@ -1016,8 +1017,15 @@ def upload_source_audio():
     dest = uploads_dir / f"{ts}_{safe}{ext}"
     fileobj.save(str(dest))
 
+    try:
+        import torchaudio
+        info = torchaudio.info(str(dest))
+        duration = info.num_frames / info.sample_rate
+    except Exception:
+        duration = None
+
     rel = dest.relative_to(cfg.project_root)
-    return jsonify({"path": str(rel), "name": dest.name, "size_bytes": dest.stat().st_size})
+    return jsonify({"path": str(rel), "name": dest.name, "size_bytes": dest.stat().st_size, "duration_seconds": duration})
 
 
 @app.route('/api/performance/recording', methods=['POST'])

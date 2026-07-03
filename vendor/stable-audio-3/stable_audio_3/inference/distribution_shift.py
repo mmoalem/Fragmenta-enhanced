@@ -3,6 +3,65 @@ import torch
 import typing as tp
 
 
+class KarrasShift:
+    """Karras ρ-exponent timestep schedule.
+
+    Warps linear timesteps to follow the Karras et al. 2022 ρ-exponent sigma
+    schedule: σ_i = (σ_max^(1/ρ) + ramp · (σ_min^(1/ρ) - σ_max^(1/ρ)))^ρ,
+    then normalises to t ∈ [0,1].  This concentrates steps at low noise levels
+    (high t), giving better high-frequency detail reconstruction.
+
+    Args:
+        sigma_min: Minimum sigma (default 0.002, matches Karras paper).
+        rho: Exponent (default 7, standard Karras value).
+    """
+    def __init__(self, sigma_min: float = 0.002, rho: float = 7.0):
+        self.sigma_min = sigma_min
+        self.rho = rho
+
+    def shift(self, t: torch.Tensor, seq_len=None):
+        # t in [0, 1] from build_schedule — 0 = clean, 1 = noise.
+        # Karras sigmas decrease with index: σ_0 = σ_max, σ_N = σ_min.
+        # Map t → Karras-scaled version: ramp = 1 - t gives decreasing sigmas.
+        ramp = 1.0 - t
+        min_inv = self.sigma_min ** (1.0 / self.rho)
+        max_inv = 1.0 ** (1.0 / self.rho)  # = 1  (sigma_max normalised to 1)
+        sigmas = (max_inv + ramp * (min_inv - max_inv)) ** self.rho
+        return sigmas
+
+
+class BetaShift:
+    """Beta-distribution timestep warp.
+
+    Maps uniformly-spaced t ∈ [0, 1] through the CDF of a Beta(α, β)
+    distribution.  This concentrates steps where the Beta density peaks:
+      - α=β=0.5  → U-shaped (steps at both ends, fewer in the middle)
+      - α=β=1.0  → uniform (identity, same as Linear)
+      - α=β=2.0  → bell-shaped (steps in the middle, fewer at ends)
+      - α=0.7, β=0.7  → mild U-shape, useful for audio
+      - α=0.5, β=2.0  → left-skewed (more steps near t=1 / low noise)
+
+    The default (α=0.7, β=0.7) gives a gentle U-shape that puts slightly
+    more steps at both high-noise and low-noise extremes, a good general-
+    purpose audio schedule.
+
+    Args:
+        alpha: Beta shape parameter α (> 0).
+        beta: Beta shape parameter β (> 0).
+    """
+    def __init__(self, alpha: float = 0.7, beta: float = 0.7):
+        self.alpha = alpha
+        self.beta = beta
+
+    def shift(self, t: torch.Tensor, seq_len=None):
+        # Beta CDF via scipy (torch.distributions.Beta.cdf raises
+        # NotImplementedError, torch.special.betainc is version-dependent).
+        import scipy.stats as ss
+        t_np = t.cpu().double().numpy()
+        cdf_np = ss.beta.cdf(t_np.clip(0.0, 1.0), self.alpha, self.beta)
+        return torch.from_numpy(cdf_np).to(device=t.device, dtype=t.dtype)
+
+
 class IdentityDistributionShift:
     """No-op distribution shift — returns timesteps unchanged."""
     def shift(self, t: torch.Tensor, seq_len):

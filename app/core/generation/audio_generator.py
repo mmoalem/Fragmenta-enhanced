@@ -14,6 +14,7 @@ Cancellation is per-run: each generation gets its own stop event, set by
 checks the event and aborts mid-run. Starting a new generation can never
 clear a stop aimed at the previous one.
 """
+import functools
 import os
 import platform
 import re
@@ -298,6 +299,34 @@ class AudioGenerator:
             _hf_const.HF_HUB_OFFLINE = True
         except Exception:
             _hf_const = None
+
+        # Monkey-patch T5GemmaConditioner so base models use the correct
+        # companion repo for the T5Gemma tokenizer. The official
+        # medium-base model_config.json references
+        # "stabilityai/stable-audio-3-small-music", but the T5Gemma files
+        # are cached under "stabilityai/stable-audio-3-medium" (per
+        # SA3_T5GEMMA_SIBLINGS). Without this redirect,
+        # AutoTokenizer.from_pretrained fails with LocalEntryNotFoundError
+        # in offline mode because the small-music repo was never downloaded.
+        _t5gemma_patch = None
+        try:
+            from app.core.training.sa3_lora_runner import SA3_T5GEMMA_SIBLINGS
+            sibling = SA3_T5GEMMA_SIBLINGS.get(model_id)
+            if sibling:
+                correct_repo, _ = sibling
+                from stable_audio_3.models import conditioners as _cond_mod
+                _orig_t5_init = _cond_mod.T5GemmaConditioner.__init__
+                @functools.wraps(_orig_t5_init)
+                def _patched_t5_init(self, *a, **kw):
+                    repo_id = kw.get("repo_id")
+                    if repo_id and repo_id != correct_repo:
+                        kw["repo_id"] = correct_repo
+                    return _orig_t5_init(self, *a, **kw)
+                _cond_mod.T5GemmaConditioner.__init__ = _patched_t5_init
+                _t5gemma_patch = (_cond_mod, _orig_t5_init)
+        except Exception:
+            pass  # non-base model or import issue — proceed without patching
+
         try:
             try:
                 from stable_audio_3 import StableAudioModel
@@ -332,6 +361,12 @@ class AudioGenerator:
                     inner.lora_names = []
                     self.model = StableAudioModel(inner, model_config, device, half)
         finally:
+            if _t5gemma_patch is not None:
+                try:
+                    _cond_mod, _orig_t5_init = _t5gemma_patch
+                    _cond_mod.T5GemmaConditioner.__init__ = _orig_t5_init
+                except Exception:
+                    pass
             for k, v in prev_env.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -518,10 +553,11 @@ class AudioGenerator:
         _, kind, max_dur = _MODEL_INFO[model_id]
         is_base = (kind == "base")
 
-        # Defaults differ by model kind. Post-trained models distilled CFG
-        # away; we force cfg=1.0 there even if the caller overrides.
+        # Steps default to 50 (base) / 8 (distilled) if unspecified; CFG
+        # defaults likewise. Both are user-overridable (distilled models
+        # previously forced CFG=1.0 unconditionally).
         effective_steps = int(steps) if steps else (50 if is_base else 8)
-        effective_cfg = float(cfg_scale) if (cfg_scale is not None and is_base) else (
+        effective_cfg = float(cfg_scale) if cfg_scale is not None else (
             7.0 if is_base else 1.0
         )
 
@@ -572,7 +608,19 @@ class AudioGenerator:
             callback=_cb,
         )
         if dist_shift is not None:
-            gen_kwargs["dist_shift"] = dist_shift
+            from stable_audio_3.inference.distribution_shift import (
+                IdentityDistributionShift, FluxDistributionShift, LogSNRShift,
+                KarrasShift, BetaShift,
+            )
+            _DIST_SHIFT_MAP = {
+                "none": IdentityDistributionShift(),
+                "logsnr": LogSNRShift(),
+                "flux": FluxDistributionShift(),
+                "karras": KarrasShift(),
+                "beta": BetaShift(),
+                "hap": "hap",  # passed as string; handled in sampling.py
+            }
+            gen_kwargs["dist_shift"] = _DIST_SHIFT_MAP.get(dist_shift, dist_shift)
         if init_audio is not None:
             gen_kwargs["init_audio"] = init_audio
             gen_kwargs["init_noise_level"] = float(init_noise_level)
@@ -590,21 +638,32 @@ class AudioGenerator:
 
         # Reference audio injection: wrap the DiT model for two-pass sampling
         _ref_wrapper = None
-        _original_dit = None
+        _ref_restore = None  # (parent_obj, attr_name, original_value)
         if ref_audio_path:
             ref_raw = self._load_audio(ref_audio_path)
             ref_latent = self._encode_ref_audio(ref_raw, sample_size_ceiling)
             active = [int(k) for k, v in (ref_layer_strengths or {}).items() if float(v) > 0]
-            _original_dit = self.model.model.model  # DiffusionTransformer
+
+            # Unwrap DiTWrapper (medium) -> DiffusionTransformer (small)
+            _inner = self.model.model.model
+            if hasattr(_inner, 'model') and not hasattr(_inner, 'transformer'):
+                # DiTWrapper wraps the actual DiffusionTransformer
+                _dit_model = _inner.model
+                _ref_parent, _ref_attr = _inner, 'model'
+            else:
+                _dit_model = _inner
+                _ref_parent, _ref_attr = self.model.model, 'model'
+
             _ref_wrapper = RefInjectModelWrapper(
-                _original_dit, ref_latent,
+                _dit_model, ref_latent,
                 layer_strengths={int(k): float(v) for k, v in (ref_layer_strengths or {}).items()},
                 inject_mode=ref_inject_mode,
                 step_taper=ref_step_taper,
                 time_taper=ref_time_taper,
                 active_layers=active or None,
             )
-            self.model.model.model = _ref_wrapper
+            _ref_restore = (_ref_parent, _ref_attr, _dit_model)
+            setattr(_ref_parent, _ref_attr, _ref_wrapper)
 
         try:
             audio = self.model.generate(**gen_kwargs)
@@ -617,8 +676,9 @@ class AudioGenerator:
                           error=str(exc), ended_at=time.time())
             raise
         finally:
-            if _original_dit is not None:
-                self.model.model.model = _original_dit
+            if _ref_restore is not None:
+                _parent, _attr, _orig = _ref_restore
+                setattr(_parent, _attr, _orig)
 
         # Seamless-loop processing (quantize, inpaint, crossfade) was
         # removed: the user A/B-compared raw SA3 output against the full

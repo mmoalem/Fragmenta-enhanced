@@ -18,15 +18,29 @@ from typing import Optional
 from ..transformer import Attention, apply_rotary_pos_emb
 
 
-def _match_length(ref_k, gen_t):
-    """Trim or repeat-pad ref_k along sequence dim to match gen_t."""
-    ref_t = ref_k.shape[2]
+def _match_length(ref, gen_t, seq_dim):
+    """Trim or repeat-pad ref along sequence dim to match gen_t.
+
+    Args:
+        ref: KV tensor, either 4D [B, H, T, D] or 5D [B, 2, H, T, D].
+        gen_t: Target sequence length.
+        seq_dim: Dimension index for the sequence axis.
+    """
+    ref_t = ref.shape[seq_dim]
     if ref_t == gen_t:
-        return ref_k
+        return ref
     if ref_t > gen_t:
-        return ref_k[:, :, :gen_t, :]
+        slices = [slice(None)] * ref.dim()
+        slices[seq_dim] = slice(gen_t)
+        return ref[tuple(slices)]
     repeats = (gen_t + ref_t - 1) // ref_t
-    return ref_k.repeat(1, 1, repeats, 1)[:, :, :gen_t, :]
+    # Build repeat pattern: [1, 1, repeats, 1] for 4D or [1, 1, 1, repeats, 1] for 5D
+    pattern = [1] * ref.dim()
+    pattern[seq_dim] = repeats
+    result = ref.repeat(*pattern)
+    slices = [slice(None)] * ref.dim()
+    slices[seq_dim] = slice(gen_t)
+    return result[tuple(slices)]
 
 
 def _make_capture_forward(attn_mod, cache, layer_idx):
@@ -55,6 +69,11 @@ def _make_capture_forward(attn_mod, cache, layer_idx):
             q = rearrange(q, 'b n (h d) -> b h n d', h=h)
             k, v = self.to_kv(kv_input).chunk(2, dim=-1)
             k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=kv_h), (k, v))
+        elif self.differential:
+            q, k, v, q_diff, k_diff = self.to_qkv(x).chunk(5, dim=-1)
+            q, k, v, q_diff, k_diff = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), (q, k, v, q_diff, k_diff))
+            q = torch.stack([q, q_diff], dim=1)
+            k = torch.stack([k, k_diff], dim=1)
         else:
             q, k, v = self.to_qkv(x).chunk(3, dim=-1)
             q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), (q, k, v))
@@ -159,6 +178,11 @@ def _make_inject_forward(attn_mod, cache, layer_idx, strength, mode="inject", ti
             q = rearrange(q, 'b n (h d) -> b h n d', h=h)
             k, v = self.to_kv(kv_input).chunk(2, dim=-1)
             k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=kv_h), (k, v))
+        elif self.differential:
+            q, k, v, q_diff, k_diff = self.to_qkv(x).chunk(5, dim=-1)
+            q, k, v, q_diff, k_diff = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), (q, k, v, q_diff, k_diff))
+            q = torch.stack([q, q_diff], dim=1)
+            k = torch.stack([k, k_diff], dim=1)
         else:
             q, k, v = self.to_qkv(x).chunk(3, dim=-1)
             q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), (q, k, v))
@@ -191,23 +215,28 @@ def _make_inject_forward(attn_mod, cache, layer_idx, strength, mode="inject", ti
             q, k = q.to(v.dtype), k.to(v.dtype)
 
         # --- inject reference K/V ---
-        gen_t = k.shape[2]
+        is_diff = self.differential
+        seq_dim_k = 3 if is_diff else 2  # seq dim: 5D k=[B,2,H,T,D], 4D k=[B,H,T,D]
+        seq_dim_v = 2                    # v always 4D: [B,H,T,D]
+        gen_t = k.shape[seq_dim_k]
+
         ref_k = ref_data["k"].to(device=k.device, dtype=k.dtype)
         ref_v = ref_data["v"].to(device=v.device, dtype=v.dtype)
 
         # Match reference length to generation
-        ref_k = _match_length(ref_k, gen_t)
-        ref_v = _match_length(ref_v, gen_t)
+        ref_k = _match_length(ref_k, gen_t, seq_dim_k)
+        ref_v = _match_length(ref_v, gen_t, seq_dim_v)
 
         # Expand B=1 reference to match generation batch
         bsz = k.shape[0]
         if ref_k.shape[0] == 1 and bsz > 1:
-            ref_k = ref_k.expand(bsz, -1, -1, -1)
-            ref_v = ref_v.expand(bsz, -1, -1, -1)
+            ref_k = ref_k.expand(bsz, *([-1] * (ref_k.dim() - 1)))
+            ref_v = ref_v.expand(bsz, *([-1] * (ref_v.dim() - 1)))
 
         # Time taper across audio sequence
         if time_taper != "none":
-            time_mult = _compute_time_multiplier(ref_k.shape[2], time_taper, ref_k.device, ref_k.dtype)
+            ref_len = ref_k.shape[seq_dim_k]
+            time_mult = _compute_time_multiplier(ref_len, time_taper, ref_k.device, ref_k.dtype)
             ref_k = ref_k * time_mult
             ref_v = ref_v * time_mult
 
@@ -217,24 +246,48 @@ def _make_inject_forward(attn_mod, cache, layer_idx, strength, mode="inject", ti
         else:  # inject (concat)
             ref_k = ref_k * strength
             ref_v = ref_v * strength
-            k = torch.cat([k, ref_k], dim=2)
-            v = torch.cat([v, ref_v], dim=2)
+            k = torch.cat([k, ref_k], dim=seq_dim_k)
+            v = torch.cat([v, ref_v], dim=seq_dim_v)
 
         # --- complete attention with injected K/V ---
-        # Apply GQA repeat interleave if needed
-        if self.num_heads != self.kv_heads:
-            heads_per_kv = self.num_heads // self.kv_heads
-            k, v = map(lambda t: t.repeat_interleave(heads_per_kv, dim=1), (k, v))
-
-        # Run attention with injected K/V
-        out = self.apply_attn(
-            q, k, v, causal=causal,
-            flex_attention_block_mask=flex_attention_block_mask,
-            flex_attention_score_mod=flex_attention_score_mod,
-            flash_attn_sliding_window=flash_attn_sliding_window,
-            padding_mask=padding_mask,
-            varlen_metadata=varlen_metadata,
-        )
+        if self.differential:
+            q, q_diff = q.unbind(dim=1)
+            k, k_diff = k.unbind(dim=1)
+            # Apply GQA repeat on each kv pair
+            if self.num_heads != self.kv_heads:
+                heads_per_kv = self.num_heads // self.kv_heads
+                k, k_diff = map(lambda t: t.repeat_interleave(heads_per_kv, dim=1), (k, k_diff))
+                v = v.repeat_interleave(heads_per_kv, dim=1)
+            out_main = self.apply_attn(
+                q, k, v, causal=causal,
+                flex_attention_block_mask=flex_attention_block_mask,
+                flex_attention_score_mod=flex_attention_score_mod,
+                flash_attn_sliding_window=flash_attn_sliding_window,
+                padding_mask=padding_mask,
+                varlen_metadata=varlen_metadata,
+            )
+            out_diff = self.apply_attn(
+                q_diff, k_diff, v, causal=causal,
+                flex_attention_block_mask=flex_attention_block_mask,
+                flex_attention_score_mod=flex_attention_score_mod,
+                flash_attn_sliding_window=flash_attn_sliding_window,
+                padding_mask=padding_mask,
+                varlen_metadata=varlen_metadata,
+            )
+            out = out_main - out_diff
+        else:
+            # Apply GQA repeat interleave if needed
+            if self.num_heads != self.kv_heads:
+                heads_per_kv = self.num_heads // self.kv_heads
+                k, v = map(lambda t: t.repeat_interleave(heads_per_kv, dim=1), (k, v))
+            out = self.apply_attn(
+                q, k, v, causal=causal,
+                flex_attention_block_mask=flex_attention_block_mask,
+                flex_attention_score_mod=flex_attention_score_mod,
+                flash_attn_sliding_window=flash_attn_sliding_window,
+                padding_mask=padding_mask,
+                varlen_metadata=varlen_metadata,
+            )
         out = rearrange(out, ' b h n d -> b n (h d)')
         out = self.to_out(out)
         return out
@@ -275,7 +328,14 @@ class InjectionHookManager:
 
     def __init__(self, model, active_layers=None):
         self.model = model
-        self.transformer = model.transformer if hasattr(model, 'transformer') else model
+        # Unwrap DiTWrapper (medium model) -> DiffusionTransformer (small model)
+        if hasattr(model, 'transformer'):
+            dt = model
+        elif hasattr(model, 'model') and hasattr(model.model, 'transformer'):
+            dt = model.model
+        else:
+            dt = model
+        self.transformer = dt.transformer if hasattr(dt, 'transformer') else dt
         self.layers = self.transformer.layers
         self.num_layers = len(self.layers)
         self.active_layers = active_layers or list(range(self.num_layers))

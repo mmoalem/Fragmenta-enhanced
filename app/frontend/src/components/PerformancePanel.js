@@ -139,6 +139,7 @@ function PerformancePanelInner({
     onLoraMultiplierChange,
     steps = 250,
     onStepsChange,
+    cfgScale = 7.0,
     randomSeed = true,
     seedValue = '',
     onRandomSeedChange,
@@ -859,10 +860,9 @@ function PerformancePanelInner({
                 duration,
                 seed,
                 model_id: selectedModel,
-                // CFG is only meaningful for *-base; backend ignores it on
-                // distilled models. Steps default to 8 for distilled, 50 for
-                // base — only send the override when we're on base.
-                ...(isDistilled ? {} : { steps, cfg_scale: 7.0 }),
+                // Steps and CFG are user-settable for all models.
+                steps,
+                cfg_scale: cfgScale,
                 // LoRA stacking (Phase 4). TRAINING targets *-base only,
                 // but at inference a base-trained LoRA also applies to its
                 // distilled sibling (same backbone, only the CFG state
@@ -1935,17 +1935,11 @@ function PerformancePanelInner({
                         <FormControl size="small" sx={{ ...styles.pillControl, width: 68 }}>
 
                             <Select
-                                value={isDistilledSA3 ? 8 : steps}
+                                value={steps}
                                 onChange={(e) => onStepsChange?.(Number(e.target.value))}
-                                disabled={isDistilledSA3}
                                 renderValue={(value) => `${value}`}
                             >
-                                {isDistilledSA3 && (
-                                    <MenuItem value={8} sx={{ fontSize: perfTokens.fontSize.sm }}>
-                                        8 (locked)
-                                    </MenuItem>
-                                )}
-                                {[50, 100, 150, 200, 250].map((n) => (
+                                {[8, 50, 100, 150, 200, 250].map((n) => (
                                     <MenuItem key={n} value={n} sx={{ fontSize: perfTokens.fontSize.sm, fontVariantNumeric: 'tabular-nums' }}>
                                         {n}
                                     </MenuItem>

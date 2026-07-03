@@ -24,10 +24,14 @@ def _nullify_cond(kwargs: dict) -> dict:
         if key in null and null[key] is not None:
             null[key] = torch.zeros_like(null[key])
     null["cfg_scale"] = 1.0
+    # Strip length-dependent masks computed for the generation latent
+    null.pop("padding_mask", None)
+    null.pop("inpaint_mask", None)
+    null.pop("inpaint_masked_input", None)
     return null
 
 
-class RefInjectModelWrapper:
+class RefInjectModelWrapper(torch.nn.Module):
     """Wraps a DiT/transformer model to inject reference audio KV at each step.
 
     Usage:
@@ -45,6 +49,7 @@ class RefInjectModelWrapper:
         time_taper: str = "none",
         active_layers: Optional[list] = None,
     ):
+        super().__init__()
         self._dit = model  # DiffusionTransformer
         self._ref = ref_latent  # (1, C, T) latent
         self._strengths = layer_strengths or {}

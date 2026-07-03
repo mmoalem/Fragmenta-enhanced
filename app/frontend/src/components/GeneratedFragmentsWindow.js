@@ -2,8 +2,9 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
     Paper, Box, Typography, List, ListItem, IconButton,
     Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button,
-    CircularProgress, Alert,
+    CircularProgress, Alert, Chip, Divider,
 } from '@mui/material';
+import { X as CloseIcon, Copy as CopyIcon } from 'lucide-react';
 import { TIPS } from '../tooltips';
 import Tooltip from './Tooltip';
 import {
@@ -71,6 +72,7 @@ export default function GeneratedFragmentsWindow({ fragments, onDelete, onClearA
     const [playingFragment, setPlayingFragment] = useState(null);
     const [playingTime, setPlayingTime] = useState(0);
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+    const [selectedFragment, setSelectedFragment] = useState(null);
     // Transient feedback for row actions (reveal failures, the web-mode
     // "use download instead" message) — these used to die in the console.
     const [actionMessage, setActionMessage] = useState(null);
@@ -426,7 +428,10 @@ export default function GeneratedFragmentsWindow({ fragments, onDelete, onClearA
                                 </IconButton>
 
                                 <Box
-                                    sx={{ ...generatedFragmentsWindowStyles.fragmentMeta, cursor: 'grab' }}
+                                    sx={{ ...generatedFragmentsWindowStyles.fragmentMeta, cursor: 'pointer' }}
+                                    onClick={() => setSelectedFragment(
+                                        selectedFragment?.id === fragment.id ? null : fragment
+                                    )}
                                     draggable
                                     onDragStart={(e) => {
                                         // In-app payload consumed by EditPanel's drop zone
@@ -559,6 +564,55 @@ export default function GeneratedFragmentsWindow({ fragments, onDelete, onClearA
                         );
                     })}
                 </List>
+            )}
+
+            {/* Fragment metadata detail panel */}
+            {selectedFragment && (
+                <Box sx={{ borderTop: 1, borderColor: 'divider', px: 2, py: 1.5 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary">Fragment Details</Typography>
+                        <IconButton size="small" onClick={() => setSelectedFragment(null)}>
+                            <CloseIcon size={14} />
+                        </IconButton>
+                    </Box>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, userSelect: 'text' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
+                            <Typography variant="body2" sx={{ wordBreak: 'break-word', flex: 1 }}>
+                                {selectedFragment.prompt}
+                            </Typography>
+                            <IconButton
+                                size="small"
+                                onClick={() => navigator.clipboard.writeText(selectedFragment.prompt)}
+                                sx={{ mt: -0.25, color: 'text.disabled', '&:hover': { color: 'primary.main' } }}
+                            >
+                                <CopyIcon size={12} />
+                            </IconButton>
+                        </Box>
+                        <Divider />
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                            <Chip label={`Model: ${selectedFragment.modelId || '—'}`} size="small" variant="outlined" />
+                            <Chip label={`Sampler: ${selectedFragment.samplerType || '—'}`} size="small" variant="outlined" />
+                            <Chip label={`Schedule: ${selectedFragment.distShift || 'none'}`} size="small" variant="outlined" />
+                            <Chip label={`Steps: ${selectedFragment.steps ?? '—'}`} size="small" variant="outlined" />
+                            <Chip label={`CFG: ${selectedFragment.cfgScale ?? '—'}`} size="small" variant="outlined" />
+                            <Chip label={`Seed: ${(selectedFragment.seed != null && selectedFragment.seed >= 0) ? selectedFragment.seed : 'random'}`} size="small" variant="outlined" />
+                            <Chip label={`${selectedFragment.duration ?? '?'}s`} size="small" variant="outlined" />
+                            {selectedFragment.batchTotal > 1 && (
+                                <Chip label={`${selectedFragment.batchIndex}/${selectedFragment.batchTotal}`} size="small" variant="outlined" />
+                            )}
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 2 }}>
+                            <Typography variant="caption" color="text.disabled">
+                                {selectedFragment.timestamp || ''}
+                            </Typography>
+                            {selectedFragment.filename && (
+                                <Typography variant="caption" color="text.disabled" sx={{ wordBreak: 'break-all' }}>
+                                    {selectedFragment.filename}
+                                </Typography>
+                            )}
+                        </Box>
+                    </Box>
+                </Box>
             )}
         </Paper>
     );

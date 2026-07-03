@@ -51,10 +51,8 @@ export const TIPS = {
             armed
                 ? 'Click again within 3s to confirm — clears session, fragments, and MIDI mappings'
                 : 'Reset all panel settings, clear fragments, and clear MIDI mappings',
-        steps: (isDistilled) =>
-            isDistilled
-                ? 'Locked at 8 steps for distilled SA3 models — pick a *-base checkpoint to override'
-                : 'Diffusion steps per generation (more = higher quality, slower)',
+        steps: () =>
+            'Diffusion steps per generation (more = higher quality, slower). 8 is fast but may lose detail; 50+ for higher quality.',
         bpmInject: (on, bpm) =>
             on
                 ? `Injecting master BPM (${Math.round(bpm)}) into prompts — click to disable`
@@ -149,16 +147,16 @@ export const TIPS = {
     generate: {
         promptAssistant: 'Rewrite your prompt with more detail using a local LLM (Qwen 2B). May also suggest a duration.',
         mode: 'Generate new makes audio from a text prompt. Edit existing transforms a clip you provide (style transfer, inpaint a region, or extend it).',
-        modelSelect: 'The checkpoint that does the generating. Distilled models are fixed at fast settings (8 steps, no guidance); -base models let you tune CFG and steps. Greyed-out rows aren\'t downloaded yet — use the download icon.',
+        modelSelect: 'The checkpoint that does the generating. Greyed-out rows aren\'t downloaded yet — use the download icon.',
         prompt: 'Describe the sound you want — instruments, genre, mood, tempo, key. SA3 responds to AudioSparx-style tags (e.g. "TrackType: Music, Genre: Techno, BPM: 128") as well as plain English.',
         duration: 'Length of the clip to generate, in seconds. Capped at the model\'s native maximum (~120s for small models, ~380s for medium). Longer clips take proportionally longer to render.',
-        negativePrompt: 'Optional. Describe what to steer away from (e.g. "vocals, distortion, silence"). Only used on -base models that support guidance; ignored by distilled models.',
-        cfg: 'Classifier-Free Guidance — how strictly the model follows your prompt. Low (1–3) is loose and creative; high (8–15) hugs the prompt but can sound harsh. SA3\'s sweet spot is ~7. Only on -base models.',
-        steps: 'How many denoising steps the sampler runs. More steps = cleaner detail but slower; fewer = faster but rougher. 50 is a good default for -base models. Distilled models are locked at 8.',
+        negativePrompt: 'Optional. Describe what to steer away from (e.g. "vocals, distortion, silence").',
+        cfg: 'Classifier-Free Guidance — how strictly the model follows your prompt. Low (1–3) is loose and creative; high (8–15) hugs the prompt but can sound harsh. SA3\'s sweet spot is ~7. Distilled models have CFG baked in; explicit CFG on top may degrade quality.',
+        steps: 'How many denoising steps the sampler runs. More steps = cleaner detail but slower; fewer = faster but rougher. 50 is a good default. Distilled models work well at 8 but accept higher counts.',
         batch: 'How many clips to generate from this one prompt in a single run. Each uses its own seed (unless you fix the seed). Handy for auditioning variations.',
         seed: 'The random starting point. Random rolls a fresh seed every clip (the value is recorded on each fragment). Turn it off and set a number to reproduce an exact result, or to vary one setting at a time.',
-        sampler: 'ODE solver for diffusion sampling. Euler is fastest but noisiest; RK4 is slower but more accurate; DPM++ is the recommended default for quality; PingPong alternates direction for smoother trajectories.',
-        distShift: 'Timestep schedule warping. Linear (default) is even spacing. LogSNR concentrates steps at low noise. Flux concentrates steps at high noise (Flux-style). Some samplers (e.g. RK4) may need a non-linear schedule for stability.',
+        sampler: 'ODE solver. PingPong (distilled) / DPM++ (base) recommended. Euler fastest; Heun/Midpoint/RK4 higher-order; STORM adaptive stiffness-switching (best quality, 2 NFE/step).',
+        distShift: 'Sigma schedule. Linear (default) is even spacing. Karras ρ-exponent (detail). Beta gentle U-shape. LogSNR log-space. Flux high-noise focus. HAP physics-based potential-well curve.',
         generateButton: 'Render the clip(s) with the current settings. Disabled until you\'ve picked a downloaded model and entered a prompt.',
         stop: 'Stop the current generation. The in-progress clip is discarded — nothing is saved.',
     },

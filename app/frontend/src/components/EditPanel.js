@@ -298,9 +298,8 @@ export default function EditPanel({ model_id, negativePrompt, loraStack, steps, 
                 steps,
             };
             if (negativePrompt) body.negative_prompt = negativePrompt;
-            // Only base models honour CFG; sending it on a distilled model is
-            // harmless (backend forces 1.0) but we keep the UI honest.
-            if (!isDistilledBase) body.cfg_scale = cfgScale;
+            // CFG is user-settable for all models.
+            body.cfg_scale = cfgScale;
             // Inherit the Generation panel's LoRA stack. Bypassed slots stay in
             // load order but contribute strength 0 (same as plain generation).
             const activeLoras = (loraStack || [])

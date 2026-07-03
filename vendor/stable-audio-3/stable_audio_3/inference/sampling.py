@@ -352,6 +352,132 @@ def sample_flow_pingpong(model, x, sigmas, callback=None, disable_tqdm=False, **
 
 
 
+def sample_discrete_heun(model, x, sigmas, callback=None, disable_tqdm=False, **extra_args):
+    """2nd-order improved Euler (Heun's method).
+
+    Uses trapezoidal correction: k1 = f(x_i), k2 = f(x_i + dt·k1),
+    then x_{i+1} = x_i + dt · (k1 + k2)/2.
+
+    More accurate than Euler for the same step count at the cost of one
+    extra NFE per step.
+
+    Args:
+        sigmas: Pre-computed schedule tensor. Shape (steps+1,) for global schedule
+            or (batch_size, steps+1) for per-element schedules.
+    """
+    t = sigmas
+    per_element_schedule = t.dim() == 2
+    t = t.to(x.device)
+    num_steps = t.shape[-1] - 1
+
+    for i in trange(num_steps, disable=disable_tqdm):
+        if per_element_schedule:
+            t_curr = t[:, i].to(x.dtype)
+            t_next = t[:, i + 1].to(x.dtype)
+            dt = (t_next - t_curr).view(-1, 1, 1)
+            t_curr_tensor = t_curr
+        else:
+            t_curr = t[i].to(x.dtype)
+            t_next = t[i + 1].to(x.dtype)
+            dt = t_next - t_curr
+            t_curr_tensor = t_curr.expand(x.shape[0])
+
+        k1 = model(x, t_curr_tensor, **extra_args)
+
+        if callback is not None:
+            if per_element_schedule:
+                denoised = x - t_curr.view(-1, 1, 1) * k1
+            else:
+                denoised = x - t_curr * k1
+            callback({'x': x, 't': t_curr, 'sigma': t_curr, 'i': i, 'denoised': denoised})
+
+        # Heun correction: evaluate at the Euler-predicted point
+        x_euler = x + dt * k1
+        if per_element_schedule:
+            t_mid = ((t_curr + t_next) / 2).view(-1, 1, 1)
+        else:
+            t_mid = (t_curr + t_next) / 2
+        k2 = model(x_euler, t_curr_tensor, **extra_args)
+
+        x = x + dt * (k1 + k2) / 2
+
+    return x
+
+
+def sample_midpoint(model, x, sigmas, callback=None, disable_tqdm=False, **extra_args):
+    """Midpoint method (2nd-order Runge-Kutta).
+
+    Evaluates the derivative at the midpoint of the interval:
+      k1 = f(x_i),  k2 = f(x_i + (dt/2)·k1),
+      x_{i+1} = x_i + dt · k2
+
+    One NFE cheaper per step than Heun while still 2nd-order accurate.
+
+    Args:
+        sigmas: Pre-computed schedule tensor. Shape (steps+1,) for global schedule
+            or (batch_size, steps+1) for per-element schedules.
+    """
+    t = sigmas
+    per_element_schedule = t.dim() == 2
+    t = t.to(x.device)
+    num_steps = t.shape[-1] - 1
+
+    for i in trange(num_steps, disable=disable_tqdm):
+        if per_element_schedule:
+            t_curr = t[:, i].to(x.dtype)
+            t_next = t[:, i + 1].to(x.dtype)
+            dt = (t_next - t_curr).view(-1, 1, 1)
+            t_curr_tensor = t_curr
+        else:
+            t_curr = t[i].to(x.dtype)
+            t_next = t[i + 1].to(x.dtype)
+            dt = t_next - t_curr
+            t_curr_tensor = t_curr.expand(x.shape[0])
+
+        k1 = model(x, t_curr_tensor, **extra_args)
+
+        if callback is not None:
+            if per_element_schedule:
+                denoised = x - t_curr.view(-1, 1, 1) * k1
+            else:
+                denoised = x - t_curr * k1
+            callback({'x': x, 't': t_curr, 'sigma': t_curr, 'i': i, 'denoised': denoised})
+
+        # Midpoint evaluation
+        x_mid = x + (dt / 2) * k1
+        k2 = model(x_mid, t_curr_tensor, **extra_args)
+
+        x = x + dt * k2
+
+    return x
+
+
+def sample_storm(model, x, sigmas, callback=None, disable_tqdm=False, **extra_args):
+    """STORM adaptive stiffness-switching ODE sampler for flow-matching models.
+
+    Wraps the upstream storm_sampler_core. The SA3 backbone returns velocity
+    directly, but STORM expects a model_fn returning denoised.  This adapter
+    converts: denoised = x - sigma * backbone(x, sigma).
+    """
+    from .storm_sampler_core import storm_sampler as _storm_run
+
+    sigmas = sigmas.to(x.device)
+
+    def _denoised_fn(x_in, sigma_in, **_ea):
+        sigma_val = sigma_in[0].item() if isinstance(sigma_in, torch.Tensor) else float(sigma_in)
+        t_batch = torch.full((x_in.shape[0],), sigma_val, dtype=x_in.dtype, device=x_in.device)
+        v = model(x_in, t_batch, **_ea)
+        return x_in - sigma_val * v
+
+    return _storm_run(
+        model_fn=_denoised_fn,
+        x=x, sigmas=sigmas,
+        extra_args=extra_args, callback=callback,
+        look_back_lambda=0.55, look_back_snr_power=1.3,
+        adaptive_sub_step=True, enable_restarts=False,
+    )
+
+
 @torch.no_grad()
 def sample_diffusion(
     model,
@@ -407,7 +533,7 @@ def sample_diffusion(
             internal mask computation. Use this to ensure consistency with training masks.
         headroom_seconds: Extra seconds beyond seconds_total for valid region
         dist_shift: Distribution shift object for warping the timestep schedule, or None
-        sampler_type: Sampler type. For RF: "euler", "rk4", "dpmpp", "pingpong".
+        sampler_type: Sampler type. For RF: "euler", "rk4", "dpmpp", "pingpong", "heun", "midpoint", "storm".
             For v-diffusion: "v-ddim", "v-ddim-cfgpp", or k-diffusion types like "dpmpp-2m-sde".
         batch_cfg: Whether to use batched CFG
         rescale_cfg: Whether to use rescaled CFG
@@ -483,12 +609,20 @@ def sample_diffusion(
         common_kwargs.pop("sigma_max", None)
         common_kwargs.pop("rho", None)
 
-        # Build schedule
-        sigmas = build_schedule(
-            steps=steps, sigma_max=sigma_max,
-            dist_shift=dist_shift, effective_seq_len=effective_seq_len,
-            fallback_seq_len=latent_seq_len, include_endpoint=True, device=device
-        )
+        # Build schedule (HAP is handled by the string "hap" passed through)
+        if isinstance(dist_shift, str) and dist_shift == "hap":
+            from .hap_scheduler_core import calculate_hap_sigmas
+            sigmas, _ = calculate_hap_sigmas(
+                steps, damping_friction=3.0, kinetic_energy=1.5,
+                sigma_max=sigma_max, sigma_min=0.0
+            )
+            sigmas = sigmas.to(device=device, dtype=noise.dtype)
+        else:
+            sigmas = build_schedule(
+                steps=steps, sigma_max=sigma_max,
+                dist_shift=dist_shift, effective_seq_len=effective_seq_len,
+                fallback_seq_len=latent_seq_len, include_endpoint=True, device=device
+            )
 
         # Route to sampler
         if sampler_type == "euler":
@@ -499,6 +633,12 @@ def sample_diffusion(
             sampled = sample_flow_dpmpp(model, noise, sigmas=sigmas, callback=callback, disable_tqdm=disable_tqdm, **common_kwargs)
         elif sampler_type == "pingpong":
             sampled = sample_flow_pingpong(model, noise, sigmas=sigmas, callback=callback, disable_tqdm=disable_tqdm, **common_kwargs)
+        elif sampler_type == "heun":
+            sampled = sample_discrete_heun(model, noise, sigmas=sigmas, callback=callback, disable_tqdm=disable_tqdm, **common_kwargs)
+        elif sampler_type == "midpoint":
+            sampled = sample_midpoint(model, noise, sigmas=sigmas, callback=callback, disable_tqdm=disable_tqdm, **common_kwargs)
+        elif sampler_type == "storm":
+            sampled = sample_storm(model, noise, sigmas=sigmas, callback=callback, disable_tqdm=disable_tqdm, **common_kwargs)
         else:
             raise ValueError(f"Unknown sampler_type for {diffusion_objective}: {sampler_type}")
 
