@@ -172,13 +172,18 @@ export default function LoraStack({ selectedModel, value, onChange }) {
                                     <Typography variant="caption" color="text.disabled" sx={{ width: 14 }}>
                                         {idx}
                                     </Typography>
-                                    <Select
-                                        size="small"
-                                        value={slot.path}
-                                        displayEmpty
-                                        onChange={(e) => setSlot(idx, { path: String(e.target.value) })}
-                                        sx={{ flex: 1, minWidth: 0 }}
-                                    >
+<Select
+                size="small"
+                value={slot.path}
+                displayEmpty
+                onChange={(e) => setSlot(idx, { path: String(e.target.value) })}
+                sx={{ flex: 1, minWidth: 0 }}
+                MenuProps={{
+                    PaperProps: {
+                        sx: { maxHeight: 320, '& .MuiList-root': { maxHeight: 320 } },
+                    },
+                }}
+            >
                                         <MenuItem value="" disabled>
                                             <em>Pick a LoRA</em>
                                         </MenuItem>
