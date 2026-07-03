@@ -181,6 +181,7 @@ export default function LoraStack({ selectedModel, value, onChange }) {
                 MenuProps={{
                     PaperProps: {
                         sx: { maxHeight: 320, '& .MuiList-root': { maxHeight: 320 } },
+                        onWheel: (e) => e.stopPropagation(),
                     },
                 }}
             >
