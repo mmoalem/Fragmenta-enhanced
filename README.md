@@ -96,6 +96,18 @@ Then run the installer for your platform:
 
 The first run downloads and installs everything; subsequent launches are faster. All data stays local.
 
+### Where to put LoRAs
+
+Place `.safetensors` LoRA checkpoint files under:
+
+```
+models/fine_tuned/<run_name>/checkpoints/
+```
+
+- `<run_name>` is any folder name you choose (e.g. `my-lora` or `saxbarblues`).
+- The file must carry a `base_model` key in its safetensors metadata (e.g. `sa3-medium` or `sa3-small-music`). The app reads this automatically.
+- No extra config files are needed; drop the files in and the LoRA picker in the **Performance** tab (and Generation tab LoRA stack) will pick them up on next launch.
+
 ---
 
 ## Project Structure
