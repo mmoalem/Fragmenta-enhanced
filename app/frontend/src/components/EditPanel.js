@@ -14,10 +14,11 @@ import {
     Switch,
     FormControlLabel,
 } from '@mui/material';
-import { Upload as UploadIcon, X as ClearIcon, Play as PlayIcon, Square as StopIcon, Volume2 as NormalizeIcon } from 'lucide-react';
+import { Upload as UploadIcon, X as ClearIcon, Play as PlayIcon, Square as StopIcon, Volume2 as NormalizeIcon, Music as MusicIcon } from 'lucide-react';
 import api from '../api';
 import AudioWaveform from './AudioWaveform';
 import Tooltip from './Tooltip';
+import ChordToSineModal from './ChordToSineModal';
 import { TIPS } from '../tooltips';
 import { getFragmentDragPayload } from '../utils/fragmentDrag';
 
@@ -104,7 +105,24 @@ export default function EditPanel({ model_id, negativePrompt, loraStack, steps, 
     const [generating, setGenerating] = useState(false);
     const [normalising, setNormalising] = useState(false);
     const [error, setError] = useState(null);
+    const [chordToSineOpen, setChordToSineOpen] = useState(false);
     const fileInputRef = useRef(null);
+
+    // Fetch a media file from the server by relative path and feed it
+    // through the upload path so it becomes the panel's source audio.
+    const loadMediaByPath = async (path) => {
+        setSourceUploading(true);
+        setError(null);
+        try {
+            const r = await api.get(`/api/media/${path}`, { responseType: 'blob' });
+            const name = path.split('/').pop() || 'source.wav';
+            const file = new File([r.data], name, { type: r.data.type || 'audio/wav' });
+            await uploadFile(file);
+        } catch (err) {
+            setError(err.response?.data?.error?.message || err.message || 'Could not load media');
+            setSourceUploading(false);
+        }
+    };
 
     // Inpaint region audition — a hidden <audio> set to the source clip, played
     // from maskStart and auto-stopped at maskEnd, so users can hear the segment
@@ -497,6 +515,18 @@ export default function EditPanel({ model_id, negativePrompt, loraStack, steps, 
                 />
             </Box>
 
+            {/* Alternative reference-input generator */}
+            <Button
+                size="small"
+                variant="outlined"
+                startIcon={<MusicIcon size={14} />}
+                onClick={() => setChordToSineOpen(true)}
+                fullWidth
+                sx={{ textTransform: 'none', mb: 2 }}
+            >
+                Alternative Ref Input
+            </Button>
+
             {/* Mode selector */}
             <Tooltip title={TIPS.edit.mode}>
             <ToggleButtonGroup
@@ -728,6 +758,12 @@ export default function EditPanel({ model_id, negativePrompt, loraStack, steps, 
                     : mode === 'inpaint' ? 'Inpaint region'
                     : 'Extend clip'}
             </Button>
+
+            <ChordToSineModal
+                open={chordToSineOpen}
+                onClose={() => setChordToSineOpen(false)}
+                onApplySource={loadMediaByPath}
+            />
         </Box>
     );
 }

@@ -24,6 +24,8 @@ python-rtmidi>=1.5.0
 scipy>=1.13,<2
 numba>=0.60,<1
 numpy>=2.2.6,<3
+pretty_midi>=0.2.11,<1
+madmom>=0.16.1,<1
 
 matplotlib>=3.8
 pandas>=2.2,<3

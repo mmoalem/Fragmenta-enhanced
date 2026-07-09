@@ -576,31 +576,83 @@ export default function GeneratedFragmentsWindow({ fragments, onDelete, onClearA
                         </IconButton>
                     </Box>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, userSelect: 'text' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
-                            <Typography variant="body2" sx={{ wordBreak: 'break-word', flex: 1 }}>
-                                {selectedFragment.prompt}
-                            </Typography>
-                            <IconButton
-                                size="small"
-                                onClick={() => navigator.clipboard.writeText(selectedFragment.prompt)}
-                                sx={{ mt: -0.25, color: 'text.disabled', '&:hover': { color: 'primary.main' } }}
-                            >
-                                <CopyIcon size={12} />
-                            </IconButton>
-                        </Box>
-                        <Divider />
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            <Chip label={`Model: ${selectedFragment.modelId || '—'}`} size="small" variant="outlined" />
-                            <Chip label={`Sampler: ${selectedFragment.samplerType || '—'}`} size="small" variant="outlined" />
-                            <Chip label={`Schedule: ${selectedFragment.distShift || 'none'}`} size="small" variant="outlined" />
-                            <Chip label={`Steps: ${selectedFragment.steps ?? '—'}`} size="small" variant="outlined" />
-                            <Chip label={`CFG: ${selectedFragment.cfgScale ?? '—'}`} size="small" variant="outlined" />
-                            <Chip label={`Seed: ${(selectedFragment.seed != null && selectedFragment.seed >= 0) ? selectedFragment.seed : 'random'}`} size="small" variant="outlined" />
-                            <Chip label={`${selectedFragment.duration ?? '?'}s`} size="small" variant="outlined" />
-                            {selectedFragment.batchTotal > 1 && (
-                                <Chip label={`${selectedFragment.batchIndex}/${selectedFragment.batchTotal}`} size="small" variant="outlined" />
-                            )}
-                        </Box>
+                        {(() => {
+                            const meta = selectedFragment.rawMeta || {};
+
+                            // Fields to show, in order, with display labels.
+                            // Each entry: [jsonKey, label, formatFn?]
+                            const fieldDefs = [
+                                ['prompt', 'Prompt'],
+                                ['negative_prompt', 'Neg prompt'],
+                                ['model_id', 'Model'],
+                                ['loras', 'LoRA(s)'],
+                                ['duration', 'Duration'],
+                                ['seed', 'Seed'],
+                                ['cfg_scale', 'CFG'],
+                                ['steps', 'Steps'],
+                                ['ref_audio_path', 'Ref audio'],
+                                ['init_noise_level', 'Init noise level'],
+                                ['inpaint_audio_path', 'Inpaint audio path'],
+                                ['inpaint_starts', 'Inpaint starts'],
+                                ['inpaint_ends', 'Inpaint ends'],
+                                ['edit_mode', 'Edit mode'],
+                            ];
+
+                            const entries = fieldDefs
+                                .filter(([key]) => {
+                                    const v = meta[key];
+                                    if (key === 'loras') return Array.isArray(v) && v.length > 0;
+                                    return v != null;
+                                })
+                                .map(([key, label]) => {
+                                    let v = meta[key];
+                                    let display;
+                                    if (key === 'loras') {
+                                        display = v.map(l => {
+                                            const name = (l.path || '').split(/[\\/]/).pop().replace(/\.safetensors$/i, '');
+                                            const s = l.strengths || {};
+                                            return `${name} (SA:${s.sa ?? 1.0}, CA:${s.ca ?? 1.0}, MLP:${s.mlp ?? 1.0})`;
+                                        }).join('; ');
+                                    } else if (key === 'duration') {
+                                        display = `${v}s`;
+                                    } else {
+                                        display = String(v);
+                                    }
+                                    return { label, display, isPrompt: key === 'prompt' };
+                                });
+
+                            if (entries.length === 0) {
+                                // Fallback for in-memory-only fragments
+                                return (
+                                    <Typography variant="body2" color="text.secondary">
+                                        No metadata available for this fragment.
+                                    </Typography>
+                                );
+                            }
+
+                            return (
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                    {entries.map(({ label, display, isPrompt }) => (
+                                        <Typography key={label} variant="body2" sx={{ wordBreak: 'break-word' }}>
+                                            <Box component="span" sx={{ color: 'text.secondary', mr: 0.5 }}>
+                                                {label}:
+                                            </Box>
+                                            {display}
+                                            {isPrompt && (
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => navigator.clipboard.writeText(meta.prompt || '')}
+                                                    sx={{ ml: 0.5, color: 'text.disabled', '&:hover': { color: 'primary.main' }, verticalAlign: 'middle' }}
+                                                >
+                                                    <CopyIcon size={12} />
+                                                </IconButton>
+                                            )}
+                                        </Typography>
+                                    ))}
+                                </Box>
+                            );
+                        })()}
+                        <Divider sx={{ my: 0.5 }} />
                         <Box sx={{ display: 'flex', gap: 2 }}>
                             <Typography variant="caption" color="text.disabled">
                                 {selectedFragment.timestamp || ''}

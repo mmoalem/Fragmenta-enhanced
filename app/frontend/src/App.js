@@ -394,6 +394,8 @@ function App() {
                     steps: f.steps,
                     seed: f.seed,
                     modelId: f.model_id || '',
+                    samplerType: f.sampler_type || null,
+                    distShift: f.dist_shift || null,
                     batchIndex: 1,
                     batchTotal: f.batch_size || 1,
                     audioUrl: `/api/fragments/${encodeURIComponent(f.filename)}`,
@@ -404,6 +406,7 @@ function App() {
                         : '',
                     createdAt: f.created_at ? f.created_at * 1000 : null,
                     editMode: f.edit_mode || null,
+                    rawMeta: f,
                 }));
                 // Server sends newest-first; reverse to keep the in-memory
                 // append-at-end convention.
@@ -1130,6 +1133,7 @@ function App() {
                     filename: fragmentFilename,
                     timestamp: new Date().toLocaleString(),
                     createdAt: Date.now(),
+                    rawMeta: {},
                 };
 
                 setGeneratedFragments(prev => {
@@ -2614,6 +2618,8 @@ function App() {
                                                                 steps: params.steps,
                                                                 seed: params.seed,
                                                                 modelId: params.model_id,
+                                                                samplerType: params.sampler_type || null,
+                                                                distShift: params.dist_shift || null,
                                                                 batchIndex: 1,
                                                                 batchTotal: 1,
                                                                 audioUrl,
@@ -2622,6 +2628,7 @@ function App() {
                                                                 timestamp: new Date().toLocaleString(),
                                                                 createdAt: Date.now(),
                                                                 editMode: params.init_audio_path ? 'style' : params.inpaint_audio_path ? 'inpaint/extend' : null,
+                                                                rawMeta: {},
                                                             };
                                                             setGeneratedFragments(prev => {
                                                                 const next = [...prev, newFrag];

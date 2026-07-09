@@ -1028,6 +1028,155 @@ def upload_source_audio():
     return jsonify({"path": str(rel), "name": dest.name, "size_bytes": dest.stat().st_size, "duration_seconds": duration})
 
 
+# ---------------------------------------------------------------------------
+# Serve uploaded / rendered files by relative project path
+# ---------------------------------------------------------------------------
+@app.route('/api/media/<path:filepath>', methods=['GET'])
+def serve_media_file(filepath):
+    """Serve any file from the project tree by relative path.
+
+    Used by the frontend to download rendered MIDI / chord-to-sine WAVs
+    for preview. Path-traversal is rejected.
+    """
+    if ".." in filepath or filepath.startswith("/"):
+        return jsonify(APIResponse.error("Invalid path.", status_code=400)), 400
+    cfg = get_config()
+    full = cfg.project_root / filepath
+    if not full.exists() or not full.is_file():
+        return jsonify(APIResponse.error("File not found.", status_code=404)), 404
+    return send_file(str(full))
+
+
+# ---------------------------------------------------------------------------
+# MIDI → sine-wave reference audio
+# ---------------------------------------------------------------------------
+@app.route('/api/audio/midi/render', methods=['POST'])
+def render_midi_to_audio():
+    """Accept a .mid file, render to sine-wave WAV, return source path.
+
+    Optional form fields: waveform (sine/triangle, default sine),
+    transpose (int, default 0).
+    """
+    if 'file' not in request.files:
+        return jsonify(APIResponse.error("No file provided.", status_code=400)), 400
+    fileobj = request.files['file']
+    if not fileobj.filename:
+        return jsonify(APIResponse.error("Empty filename.", status_code=400)), 400
+
+    ext = Path(fileobj.filename).suffix.lower()
+    if ext != '.mid':
+        return jsonify(APIResponse.error(f"Unsupported format '{ext}'. Use .mid files.", status_code=400)), 400
+
+    quota_err = _check_disk_quota()
+    if quota_err:
+        return jsonify(APIResponse.error(quota_err, status_code=507)), 507
+
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(fileobj.filename).stem)[:60] or "midi_upload"
+    waveform = request.form.get('waveform', 'sine')
+    transpose = int(request.form.get('transpose', 0))
+
+    cfg = get_config()
+    uploads_dir = cfg.get_path("output") / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+
+    # Save the raw MIDI so the user can re-download or inspect it later.
+    midi_dest = uploads_dir / f"{ts}_{safe}.mid"
+    fileobj.save(str(midi_dest))
+
+    try:
+        from app.core.audio.midi_synth import render_midi
+        wav_name = f"{ts}_{safe}_{waveform}.wav"
+        wav_dest = uploads_dir / wav_name
+        duration = render_midi(str(midi_dest), str(wav_dest), waveform=waveform, transpose=transpose)
+        rel = wav_dest.relative_to(cfg.project_root)
+        return jsonify({"path": str(rel), "name": wav_dest.name, "duration_seconds": duration})
+    except Exception as e:
+        logger.exception("MIDI render failed")
+        return jsonify(APIResponse.error(f"MIDI render failed: {e}", status_code=500)), 500
+
+
+# ---------------------------------------------------------------------------
+# Chord-to-Sine: extract chord progression from audio
+# ---------------------------------------------------------------------------
+@app.route('/api/audio/chord-to-sine/extract', methods=['POST'])
+def chord_to_sine_extract():
+    """Upload audio → madmom chord extraction → return chord text."""
+    if 'file' not in request.files:
+        return jsonify(APIResponse.error("No file provided.", status_code=400)), 400
+    fileobj = request.files['file']
+    if not fileobj.filename:
+        return jsonify(APIResponse.error("Empty filename.", status_code=400)), 400
+
+    ext = Path(fileobj.filename).suffix.lower()
+    if ext not in {".wav", ".mp3", ".flac", ".m4a", ".ogg", ".opus"}:
+        return jsonify(APIResponse.error(
+            f"Unsupported audio format '{ext}'. Use wav/mp3/flac/m4a/ogg/opus.",
+            status_code=400)), 400
+
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(fileobj.filename).stem)[:60] or "upload"
+    cfg = get_config()
+    uploads_dir = cfg.get_path("output") / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    tmp = uploads_dir / f"{ts}_{safe}{ext}"
+    fileobj.save(str(tmp))
+
+    try:
+        from app.core.audio.chord_to_sine.pipeline import extract_only, format_chords
+        chords = extract_only(str(tmp))
+        chord_text = format_chords(chords)
+        duration = chords[-1][1] if chords else 0
+        # Clean up temp file — not needed after extraction
+        tmp.unlink(missing_ok=True)
+        return jsonify({"chord_text": chord_text, "duration": duration})
+    except Exception as e:
+        logger.exception("Chord extraction failed")
+        tmp.unlink(missing_ok=True)
+        return jsonify(APIResponse.error(f"Chord extraction failed: {e}", status_code=500)), 500
+
+
+# ---------------------------------------------------------------------------
+# Chord-to-Sine: render sine WAV from chord text
+# ---------------------------------------------------------------------------
+@app.route('/api/audio/chord-to-sine/render', methods=['POST'])
+def chord_to_sine_render():
+    """Accept chord_text (and optional params) → synthesize sine WAV → return path."""
+    data = request.get_json(force=True)
+    if not data or 'chord_text' not in data:
+        return jsonify(APIResponse.error("Missing 'chord_text' in request body.", status_code=400)), 400
+
+    chord_text = data['chord_text']
+    waveform = data.get('waveform', 'sine')
+    balance = float(data.get('balance', 1.0))
+    base_midi = int(data.get('base_midi', 48))
+
+    quota_err = _check_disk_quota()
+    if quota_err:
+        return jsonify(APIResponse.error(quota_err, status_code=507)), 507
+
+    try:
+        from app.core.audio.chord_to_sine.pipeline import parse_chord_text, synthesize
+        chords = parse_chord_text(chord_text)
+        if not chords:
+            return jsonify(APIResponse.error("No valid chord segments in text.", status_code=400)), 400
+
+        cfg = get_config()
+        uploads_dir = cfg.get_path("output") / "uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        wav_name = f"{ts}_chord_sine_{waveform}.wav"
+        wav_dest = uploads_dir / wav_name
+
+        synthesize(chords, str(wav_dest), amplitude=0.2 * balance, base_midi=base_midi)
+        duration = chords[-1][1] if chords else 0
+        rel = wav_dest.relative_to(cfg.project_root)
+        return jsonify({"path": str(rel), "name": wav_dest.name, "duration_seconds": duration})
+    except Exception as e:
+        logger.exception("Chord sine render failed")
+        return jsonify(APIResponse.error(f"Sine render failed: {e}", status_code=500)), 500
+
+
 @app.route('/api/performance/recording', methods=['POST'])
 def save_performance_recording():
     """Persist a master-bus performance capture (WAV) to the output folder.

@@ -56,6 +56,19 @@ Sigma schedule warping that controls how denoising steps are distributed:
 - **Unlocked controls**: CFG scale, steps, and sampler dropdown are fully adjustable on all models (including distilled). Model switch sets sensible defaults; user overrides are preserved.
 - **Continuous steps slider**: step=1 granularity (not just integers) for fine-grained quality/speed tuning.
 
+### Alternative Reference Audio
+
+Available in the **Edit tab**, the **Alternative Ref Input** button opens a dialog that generates clean synthetic reference audio — useful as a style-transfer or inpainting source. Pure sine-wave references let the model focus on the harmonic structure (key, chord progression, register) without the clutter of real-instrument timbre, background noise, or mix artefacts.
+
+Two modes:
+
+| Mode | What it does |
+|---|---|
+| **MIDI to Sine** | Import a `.mid` file → render each note as a pure sine or triangle wave. Adjustable waveform and transposition (±12 semitones). Good for transferring a specific melodic/harmonic idea into the model. |
+| **Convert Audio to Chord Progression** | Upload any audio file → AI chord extraction (madmom CNN+CRF, librosa fallback) → editable chord text → render as sine/triangle wave. A **mix slider** blends the original audio with the sine output so you can inject a controlled amount of the original timbre alongside the clean harmonic guide. |
+
+Both modes produce a `.wav` that is automatically uploaded as the Edit tab's source clip via **Use as source**.
+
 ### LoRA System Fix
 
 Circular import between `model.py` and `utils.py` in the vendored SA3 LoRA module resolved — required for the LoRA system to load at all.
