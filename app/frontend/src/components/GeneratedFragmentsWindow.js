@@ -477,6 +477,18 @@ export default function GeneratedFragmentsWindow({ fragments, onDelete, onClearA
                                     filename={fragment.filename || 'fragment.wav'}
                                     currentTime={isPlaying ? playingTime : 0}
                                     duration={fragment.duration || 0}
+                                    onSeek={(time) => {
+                                        const audio = audioRefs.current[fragment.id];
+                                        if (!audio) return;
+                                        audio.currentTime = time;
+                                        setPlayingTime(time);
+                                        if (audio.paused) {
+                                            playInFlightRef.current?.cleanup?.();
+                                            playInFlightRef.current = null;
+                                            audio.play().catch(() => {});
+                                            setPlayingFragment(fragment.id);
+                                        }
+                                    }}
                                 />
 
                                 <Tooltip

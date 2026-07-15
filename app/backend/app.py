@@ -1074,6 +1074,8 @@ def render_midi_to_audio():
     safe = re.sub(r"[^a-zA-Z0-9._-]", "_", Path(fileobj.filename).stem)[:60] or "midi_upload"
     waveform = request.form.get('waveform', 'sine')
     transpose = int(request.form.get('transpose', 0))
+    bpm_raw = request.form.get('bpm', '').strip()
+    bpm = float(bpm_raw) if bpm_raw else None
 
     cfg = get_config()
     uploads_dir = cfg.get_path("output") / "uploads"
@@ -1088,7 +1090,7 @@ def render_midi_to_audio():
         from app.core.audio.midi_synth import render_midi
         wav_name = f"{ts}_{safe}_{waveform}.wav"
         wav_dest = uploads_dir / wav_name
-        duration = render_midi(str(midi_dest), str(wav_dest), waveform=waveform, transpose=transpose)
+        duration = render_midi(str(midi_dest), str(wav_dest), waveform=waveform, transpose=transpose, bpm=bpm)
         rel = wav_dest.relative_to(cfg.project_root)
         return jsonify({"path": str(rel), "name": wav_dest.name, "duration_seconds": duration})
     except Exception as e:

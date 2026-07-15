@@ -50,6 +50,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
     const [midiPath, setMidiPath] = useState(null);
     const [midiWaveform, setMidiWaveform] = useState('sine');
     const [midiTranspose, setMidiTranspose] = useState(0);
+    const [midiBpm, setMidiBpm] = useState('');
     const [midiName, setMidiName] = useState('');
     const midiFileRef = useRef(null);
 
@@ -88,6 +89,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
             setMidiPath(null);
             setMidiDuration(null);
             setMidiName('');
+            setMidiBpm('');
             setMixBlend(1.0);
             if (mixPreviewUrl) URL.revokeObjectURL(mixPreviewUrl);
             setMixPreviewUrl(null);
@@ -112,6 +114,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
             form.append('file', f);
             form.append('waveform', midiWaveform);
             form.append('transpose', String(midiTranspose));
+            if (midiBpm) form.append('bpm', midiBpm);
             const r = await api.post('/api/audio/midi/render', form);
             const { path, name, duration_seconds } = r.data;
             setMidiPath(path);
@@ -137,6 +140,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
             form.append('file', midiFile);
             form.append('waveform', midiWaveform);
             form.append('transpose', String(midiTranspose));
+            if (midiBpm) form.append('bpm', midiBpm);
             const r = await api.post('/api/audio/midi/render', form);
             const { path, name, duration_seconds } = r.data;
             setMidiPath(path);
@@ -404,6 +408,31 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
                                     <Typography variant="body2" sx={{ width: 32, textAlign: 'right' }}>
                                         {midiTranspose > 0 ? '+' : ''}{midiTranspose}
                                     </Typography>
+                                </Stack>
+                            </Box>
+                            <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                    Tempo (BPM) — leave empty to use the MIDI file's original tempo
+                                </Typography>
+                                <Stack direction="row" spacing={1} sx={{ mt: 0.5 }} alignItems="center">
+                                    <TextField
+                                        size="small"
+                                        type="number"
+                                        value={midiBpm}
+                                        onChange={(e) => setMidiBpm(e.target.value)}
+                                        placeholder="Auto (use file tempo)"
+                                        inputProps={{ min: 10, max: 400, step: 1 }}
+                                        sx={{ width: 120 }}
+                                    />
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        onClick={reRenderMidi}
+                                        disabled={!midiFile || midiRendering}
+                                        sx={{ textTransform: 'none' }}
+                                    >
+                                        Regenerate
+                                    </Button>
                                 </Stack>
                             </Box>
                         </Stack>

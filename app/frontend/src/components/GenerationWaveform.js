@@ -29,6 +29,8 @@ const PEAK_COUNT = 80;
  *   duration:    number          — total length in seconds.
  *   height:      number          — canvas height in px (default 28).
  *   color:       string          — accent color (default theme amber).
+ *   onSeek:      (time) => void  — called when the user clicks or drags on
+ *                                   the waveform to seek to a position.
  */
 export default function GenerationWaveform({
     blob,
@@ -38,6 +40,7 @@ export default function GenerationWaveform({
     duration = 0,
     height = 28,
     color = DEFAULT_COLOR,
+    onSeek,
 }) {
     const containerRef = useRef(null);
     const canvasRef = useRef(null);
@@ -174,6 +177,31 @@ export default function GenerationWaveform({
 
     useEffect(() => { draw(); }, [draw]);
 
+    // Click/drag on the waveform to seek.
+    const pointerDownRef = useRef(false);
+    const seekFromEvent = useCallback((clientX) => {
+        if (!onSeek || duration <= 0) return;
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        onSeek(frac * duration);
+    }, [onSeek, duration]);
+
+    const handlePointerDown = useCallback((e) => {
+        pointerDownRef.current = true;
+        (e.target)?.setPointerCapture?.(e.pointerId);
+        seekFromEvent(e.clientX);
+    }, [seekFromEvent]);
+
+    const handlePointerMove = useCallback((e) => {
+        if (!pointerDownRef.current) return;
+        seekFromEvent(e.clientX);
+    }, [seekFromEvent]);
+
+    const handlePointerUp = useCallback(() => {
+        pointerDownRef.current = false;
+    }, []);
+
     // Native drag-to-OS as a file. The DownloadURL mime type is a Chromium
     // extension the OS interprets as "this drag is a file the browser can
     // serve from URL X with mime/name Y". Source is whichever URL we have:
@@ -196,7 +224,11 @@ export default function GenerationWaveform({
             ref={containerRef}
             draggable={canDrag}
             onDragStart={handleDragStart}
-            title={canDrag ? 'Drag to save or drop into a DAW' : undefined}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            title={canDrag ? (onSeek ? 'Click to seek, drag to save to a DAW' : 'Drag to save or drop into a DAW') : undefined}
             sx={{
                 // Floor the width so the container is never zero — without
                 // this, a tight flex row could collapse it before
@@ -204,8 +236,9 @@ export default function GenerationWaveform({
                 flex: 1,
                 minWidth: 120,
                 height,
-                cursor: canDrag ? 'grab' : 'default',
-                '&:active': { cursor: canDrag ? 'grabbing' : 'default' },
+                cursor: onSeek ? 'pointer' : (canDrag ? 'grab' : 'default'),
+                '&:active': { cursor: onSeek ? 'pointer' : (canDrag ? 'grabbing' : 'default') },
+                touchAction: 'none',
             }}
         >
             <canvas

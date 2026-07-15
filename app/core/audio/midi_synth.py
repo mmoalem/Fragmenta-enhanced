@@ -27,10 +27,17 @@ def render_midi(
     output_path: str,
     waveform: str = "sine",
     transpose: int = 0,
+    bpm: float | None = None,
     sample_rate: int = 44100,
     amplitude: float = 0.2,
 ) -> float:
     pm = pretty_midi.PrettyMIDI(midi_path)
+
+    # If a target BPM is given, scale note times so the rendered audio
+    # matches that tempo instead of the MIDI file's embedded tempo.
+    orig_tempos = pm.get_tempo_changes()
+    orig_bpm = float(orig_tempos[1][0]) if len(orig_tempos[1]) > 0 else 120.0
+    time_scale = orig_bpm / bpm if (bpm is not None and bpm > 0 and abs(bpm - orig_bpm) > 0.5) else 1.0
 
     notes = []
     for inst in pm.instruments:
@@ -38,8 +45,8 @@ def render_midi(
             for note in inst.notes:
                 notes.append({
                     "pitch": note.pitch + transpose,
-                    "start": note.start,
-                    "end": note.end,
+                    "start": note.start * time_scale,
+                    "end": note.end * time_scale,
                     "velocity": note.velocity / 127.0,
                 })
 
