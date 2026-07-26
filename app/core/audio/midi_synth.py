@@ -1,6 +1,10 @@
+import logging
+
 import numpy as np
 import soundfile as sf
-import pretty_midi
+import mido
+
+logger = logging.getLogger(__name__)
 
 
 def midi_to_hz(midi_note: float) -> float:
@@ -22,6 +26,104 @@ _WAVEFORM_FUNCS = {
 }
 
 
+def _parse_midi_with_mido(midi_path: str, transpose: int = 0) -> list[dict]:
+    """Parse MIDI using mido (no tick limit) and return a list of notes.
+
+    Returns list of dicts with keys: pitch, start, end, velocity (0-127).
+    Only non-drum notes are included.
+    """
+    mid = mido.MidiFile(midi_path)
+    ticks_per_beat = mid.ticks_per_beat
+
+    # Collect tempo changes across all tracks
+    tempo_events: list[tuple[int, float]] = []
+    notes: list[dict] = []
+
+    for track in mid.tracks:
+        abs_tick = 0
+        tempo = 500000.0  # default 120 BPM (microseconds per beat)
+        # track active notes: {(channel, note): (start_tick, velocity)}
+        active: dict[tuple[int, int], tuple[int, int]] = {}
+
+        for msg in track:
+            abs_tick += msg.time
+
+            if msg.type == "set_tempo":
+                tempo = msg.tempo
+                tempo_events.append((abs_tick, tempo))
+            elif msg.type == "note_on" and msg.velocity > 0:
+                active[(msg.channel, msg.note)] = (abs_tick, msg.velocity)
+            elif msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0):
+                key = (msg.channel, msg.note)
+                if key in active:
+                    start_tick, vel = active.pop(key)
+                    notes.append({
+                        "start_tick": start_tick,
+                        "end_tick": abs_tick,
+                        "pitch": msg.note + transpose,
+                        "velocity": vel,
+                        "channel": msg.channel,
+                    })
+
+    if not notes:
+        raise ValueError("No non-drum notes found in MIDI file")
+
+    # Some exporters (e.g. ACE Studio) embed notes at very high absolute
+    # tick values (close to 2^32).  Detect and strip the offset so the
+    # first note starts near tick 0 and the file renders in reasonable time.
+    min_tick = min(n["start_tick"] for n in notes)
+    max_tick = max(n["end_tick"] for n in notes)
+    if max_tick > MAX_TICK:
+        for n in notes:
+            n["start_tick"] -= min_tick
+            n["end_tick"] -= min_tick
+        tempo_events = [(t - min_tick, bpm) for t, bpm in tempo_events
+                        if t - min_tick >= 0]
+        logger.info("Shifted MIDI ticks by -%d to normalize high-offset file", min_tick)
+
+    # Convert ticks to seconds
+    # Build a list of (tick, tempo) for tempo lookup
+    tempo_events.sort(key=lambda x: x[0])
+
+    def ticks_to_seconds(tick: int) -> float:
+        """Convert absolute tick to seconds, applying tempo map."""
+        if not tempo_events:
+            return tick * (500000.0 / (ticks_per_beat * 1_000_000.0))
+
+        # Find the last tempo change at or before this tick
+        current_tempo = 500000.0
+        last_tick = 0
+        elapsed = 0.0
+        for te_tick, te_tempo in tempo_events:
+            if te_tick > tick:
+                break
+            elapsed += (te_tick - last_tick) * (current_tempo / (ticks_per_beat * 1_000_000.0))
+            current_tempo = te_tempo
+            last_tick = te_tick
+        elapsed += (tick - last_tick) * (current_tempo / (ticks_per_beat * 1_000_000.0))
+        return elapsed
+
+    # Get original BPM from first tempo event
+    orig_bpm = 120.0
+    if tempo_events:
+        orig_bpm = mido.tempo2bpm(tempo_events[0][1])
+
+    result = []
+    for n in notes:
+        result.append({
+            "pitch": n["pitch"],
+            "start": ticks_to_seconds(n["start_tick"]),
+            "end": ticks_to_seconds(n["end_tick"]),
+            "velocity": n["velocity"] / 127.0,
+        })
+
+    return result, orig_bpm
+
+
+MAX_RENDER_SECONDS = 600  # 10 minutes — anything beyond this is likely stray tick data
+MAX_TICK = 1_000_000  # ticks above this trigger offset normalization
+
+
 def render_midi(
     midi_path: str,
     output_path: str,
@@ -31,31 +133,40 @@ def render_midi(
     sample_rate: int = 44100,
     amplitude: float = 0.2,
 ) -> float:
-    pm = pretty_midi.PrettyMIDI(midi_path)
+    parsed_notes, orig_bpm = _parse_midi_with_mido(midi_path, transpose=transpose)
 
-    # If a target BPM is given, scale note times so the rendered audio
-    # matches that tempo instead of the MIDI file's embedded tempo.
-    orig_tempos = pm.get_tempo_changes()
-    orig_bpm = float(orig_tempos[1][0]) if len(orig_tempos[1]) > 0 else 120.0
     time_scale = orig_bpm / bpm if (bpm is not None and bpm > 0 and abs(bpm - orig_bpm) > 0.5) else 1.0
 
     notes = []
-    for inst in pm.instruments:
-        if not inst.is_drum:
-            for note in inst.notes:
-                notes.append({
-                    "pitch": note.pitch + transpose,
-                    "start": note.start * time_scale,
-                    "end": note.end * time_scale,
-                    "velocity": note.velocity / 127.0,
-                })
+    for n in parsed_notes:
+        notes.append({
+            "pitch": n["pitch"],
+            "start": n["start"] * time_scale,
+            "end": n["end"] * time_scale,
+            "velocity": n["velocity"],
+        })
 
     if not notes:
         raise ValueError("No non-drum notes found in MIDI file")
 
     notes.sort(key=lambda n: n["start"])
 
+    # Strip notes that land beyond MAX_RENDER_SECONDS — stray high-tick
+    # events can map to thousands of hours of empty audio.
+    filtered = [n for n in notes if n["start"] < MAX_RENDER_SECONDS]
+    if len(filtered) < len(notes):
+        logger.warning(
+            "Filtered %d/%d notes beyond %ds — likely stray high-tick data",
+            len(notes) - len(filtered), len(notes), MAX_RENDER_SECONDS,
+        )
+    notes = filtered
+    if not notes:
+        raise ValueError("All notes exceed the maximum render duration")
+
     total_duration = max(n["end"] for n in notes)
+    # Hard cap on render length to prevent OOM on stray tick data
+    if total_duration > MAX_RENDER_SECONDS:
+        total_duration = MAX_RENDER_SECONDS
     total_samples = int(sample_rate * total_duration) + 1
     audio = np.zeros(total_samples, dtype=np.float64)
 
