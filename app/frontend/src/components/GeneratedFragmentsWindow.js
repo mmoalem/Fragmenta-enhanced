@@ -434,28 +434,34 @@ export default function GeneratedFragmentsWindow({ fragments, onDelete, onClearA
                                     )}
                                     draggable
                                     onDragStart={(e) => {
+                                        e.dataTransfer.effectAllowed = 'copy';
                                         // In-app payload consumed by EditPanel's drop zone
-                                        // ("drag a clip into the Edit tab"). Keeps the
-                                        // waveform's separate OS drag-out untouched.
                                         e.dataTransfer.setData(
                                             'application/x-fragmenta-fragment',
                                             fragment.filename || '',
                                         );
-                                        e.dataTransfer.effectAllowed = 'copy';
-                                        // Hand off the in-memory blob too so the drop can
-                                        // use it directly — no disk fetch, immune to any
-                                        // name mismatch. Falls back to the filename when
-                                        // the blob isn't preloaded yet.
                                         const blob = effectiveBlob(fragment);
+                                        // OS drag: add a real File so Explorer/Finder can accept it
                                         if (blob) {
+                                            e.dataTransfer.items.add(
+                                                new File([blob], fragment.filename || 'fragment.wav', { type: 'audio/wav' })
+                                            );
                                             setFragmentDragPayload({
                                                 filename: fragment.filename || '',
                                                 blob,
                                             });
                                         }
+                                        // Also set DownloadURL for Chromium targets
+                                        const url = effectiveUrl(fragment);
+                                        if (url) {
+                                            const abs = (url.startsWith('http') || url.startsWith('blob:'))
+                                                ? url
+                                                : `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+                                            e.dataTransfer.setData('DownloadURL', `audio/wav:${fragment.filename || 'fragment.wav'}:${abs}`);
+                                        }
                                     }}
                                     onDragEnd={() => clearFragmentDragPayload()}
-                                    title="Drag into the Edit tab to use as a source clip"
+                                    title="Drag to Explorer/DAW or drop into the Edit tab"
                                 >
                                     <Typography
                                         variant="body2"

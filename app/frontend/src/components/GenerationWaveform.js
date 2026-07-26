@@ -177,7 +177,9 @@ export default function GenerationWaveform({
 
     useEffect(() => { draw(); }, [draw]);
 
-    // Click/drag on the waveform to seek.
+    // Click/drag on the waveform to seek.  We use document-level listeners
+    // so seeking continues when the cursor leaves the element.  Pointer
+    // capture is deliberately NOT used because it breaks native drag-to-OS.
     const pointerDownRef = useRef(false);
     const seekFromEvent = useCallback((clientX) => {
         if (!onSeek || duration <= 0) return;
@@ -188,44 +190,45 @@ export default function GenerationWaveform({
     }, [onSeek, duration]);
 
     const handlePointerDown = useCallback((e) => {
+        if (!onSeek) return;
         pointerDownRef.current = true;
-        (e.target)?.setPointerCapture?.(e.pointerId);
         seekFromEvent(e.clientX);
-    }, [seekFromEvent]);
+        const onMove = (ev) => { if (pointerDownRef.current) seekFromEvent(ev.clientX); };
+        const onUp = () => {
+            pointerDownRef.current = false;
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+            document.removeEventListener('pointercancel', onUp);
+        };
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
+    }, [seekFromEvent, onSeek]);
 
-    const handlePointerMove = useCallback((e) => {
-        if (!pointerDownRef.current) return;
-        seekFromEvent(e.clientX);
-    }, [seekFromEvent]);
-
-    const handlePointerUp = useCallback(() => {
-        pointerDownRef.current = false;
-    }, []);
-
-    // Native drag-to-OS as a file.  We put a real File object on the
-    // dataTransfer so the OS (Explorer, Finder, DAWs) can accept the drop.
-    // This works in pywebview/WebView2 and standard browsers alike.
+    // Native drag-to-OS as a file.  We try multiple dataTransfer formats
+    // to maximise compatibility across pywebview/WebView2, Chrome, and
+    // various drop targets (Explorer, Finder, DAWs).
     const canDrag = !!(audioUrl || blob);
-    const handleDragStart = async (e) => {
+    const handleDragStart = (e) => {
         if (!canDrag) return;
         e.dataTransfer.effectAllowed = 'copy';
-        try {
-            let fileBlob = blob;
-            if (!fileBlob && audioUrl) {
-                const resp = await fetch(audioUrl);
-                if (!resp.ok) return;
-                fileBlob = await resp.blob();
-            }
-            if (!fileBlob) return;
-            const file = new File([fileBlob], filename, { type: 'audio/wav' });
+        const raw = audioUrl || '';
+        const absolute = (raw.startsWith('http') || raw.startsWith('blob:'))
+            ? raw
+            : `${window.location.origin}${raw.startsWith('/') ? '' : '/'}${raw}`;
+
+        // 1) Standard File object — Explorer, Finder, most native targets
+        if (blob) {
+            const file = new File([blob], filename, { type: 'audio/wav' });
             e.dataTransfer.items.add(file);
-        } catch {
-            // Fallback: set a URI-list so at least browser-to-browser works
-            const raw = audioUrl || URL.createObjectURL(blob);
-            const absolute = (raw.startsWith('http') || raw.startsWith('blob:'))
-                ? raw
-                : `${window.location.origin}${raw.startsWith('/') ? '' : '/'}${raw}`;
-            e.dataTransfer.setData('text/uri-list', absolute);
+        }
+        // 2) DownloadURL — Chromium extension, triggers browser download
+        if (absolute) {
+            e.dataTransfer.setData('DownloadURL', `audio/wav:${filename}:${absolute}`);
+        }
+        // 3) text/plain URI — universal fallback
+        if (absolute) {
+            e.dataTransfer.setData('text/plain', absolute);
         }
     };
 
@@ -235,14 +238,8 @@ export default function GenerationWaveform({
             draggable={canDrag}
             onDragStart={handleDragStart}
             onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            title={canDrag ? (onSeek ? 'Click to seek, drag to save to a DAW' : 'Drag to save or drop into a DAW') : undefined}
+            title={canDrag ? (onSeek ? 'Click to seek, drag to save to Explorer/DAW' : 'Drag to save or drop into a DAW') : undefined}
             sx={{
-                // Floor the width so the container is never zero — without
-                // this, a tight flex row could collapse it before
-                // ResizeObserver fires, leaving the canvas un-sized.
                 flex: 1,
                 minWidth: 120,
                 height,
