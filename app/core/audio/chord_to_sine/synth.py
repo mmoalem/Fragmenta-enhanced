@@ -1,5 +1,23 @@
+import functools
+
 import numpy as np
 from .chords import parse_chord_label, midi_to_hz
+
+
+_WAVEFORM_FUNCS = {
+    "sine": lambda freq, t, amp: amp * np.sin(2.0 * np.pi * freq * t),
+    "triangle": lambda freq, t, amp: amp * (2.0 * np.abs(2.0 * ((freq * t) % 1.0) - 1.0) - 1.0),
+    "square": lambda freq, t, amp: amp * np.sign(2.0 * ((freq * t) % 1.0) - 1.0),
+    "sawtooth": lambda freq, t, amp: amp * (2.0 * ((freq * t) % 1.0) - 1.0),
+    "pulse": lambda freq, t, amp, duty=0.25: amp * np.where(((freq * t) % 1.0) < duty, 1.0, -1.0),
+}
+
+
+def _get_waveform_fn(waveform: str, duty: float = 0.25):
+    fn = _WAVEFORM_FUNCS.get(waveform, _WAVEFORM_FUNCS["sine"])
+    if waveform == "pulse":
+        fn = functools.partial(fn, duty=duty)
+    return fn
 
 
 def synthesize_chord(
@@ -7,12 +25,15 @@ def synthesize_chord(
     duration: float,
     sample_rate: int = 44100,
     amplitude: float = 0.2,
+    waveform: str = "sine",
+    duty: float = 0.25,
 ) -> np.ndarray:
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
     wave = np.zeros_like(t)
     n = max(len(frequencies), 1)
+    wave_fn = _get_waveform_fn(waveform, duty)
     for freq in frequencies:
-        wave += (amplitude / n) * np.sin(2.0 * np.pi * freq * t)
+        wave += (amplitude / n) * wave_fn(freq, t, 1.0)
     return wave
 
 
@@ -22,6 +43,8 @@ def build_sine_audio(
     amplitude: float = 0.2,
     fade_samples: int = 128,
     base_midi: int = 48,
+    waveform: str = "sine",
+    duty: float = 0.25,
 ) -> np.ndarray:
     if not chord_segments:
         return np.array([], dtype=np.float64)
@@ -48,7 +71,7 @@ def build_sine_audio(
             last_freqs = [midi_to_hz(m) for m in midi_notes] if midi_notes else []
 
         freqs = last_freqs if last_freqs else []
-        block = synthesize_chord(freqs, duration, sample_rate, amplitude)
+        block = synthesize_chord(freqs, duration, sample_rate, amplitude, waveform, duty)
 
         if fade_samples > 0 and len(block) > fade_samples * 2:
             fade_in = np.linspace(0, 1, fade_samples)

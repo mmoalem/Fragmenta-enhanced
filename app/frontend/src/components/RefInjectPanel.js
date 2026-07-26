@@ -15,7 +15,7 @@ import {
     Select,
     MenuItem,
 } from '@mui/material';
-import { Upload as UploadIcon, Square as StopIcon, ChevronDown as ExpandMoreIcon } from 'lucide-react';
+import { Upload as UploadIcon, Square as StopIcon, ChevronDown as ExpandMoreIcon, Volume2 as NormalizeIcon } from 'lucide-react';
 import api from '../api';
 import Tooltip from './Tooltip';
 import { TIPS } from '../tooltips';
@@ -38,6 +38,7 @@ export default function RefInjectPanel({ model_id, negativePrompt, loraStack, st
     const [generating, setGenerating] = useState(false);
     const [error, setError] = useState(null);
     const [progress, setProgress] = useState(0);
+    const [normalizing, setNormalizing] = useState(false);
     const abortRef = useRef(null);
     const stopRef = useRef(false);
 
@@ -66,6 +67,20 @@ export default function RefInjectPanel({ model_id, negativePrompt, loraStack, st
             }
         } catch (err) {
             setError('Upload failed: ' + (err.response?.data?.error?.message || err.message));
+        }
+    };
+
+    const handleNormalize = async () => {
+        if (!refAudioPath) return;
+        setNormalizing(true);
+        setError(null);
+        try {
+            const resp = await api.post('/api/audio/normalize', { path: refAudioPath });
+            setRefAudioPath(resp.data.path);
+        } catch (err) {
+            setError('Normalize failed: ' + (err.response?.data?.error?.message || err.message));
+        } finally {
+            setNormalizing(false);
         }
     };
 
@@ -191,7 +206,11 @@ export default function RefInjectPanel({ model_id, negativePrompt, loraStack, st
             {gridItem('Reference Audio', 'Upload a reference clip whose self-attention patterns will guide generation (per-step KV injection).',
                 refAudioPath ? (
                     <Stack direction="row" spacing={1} alignItems="center">
-                        <Typography variant="body2" noWrap>{refAudioName}</Typography>
+                        <Typography variant="body2" noWrap sx={{ flex: 1 }}>{refAudioName}</Typography>
+                        <Button size="small" variant="outlined" onClick={handleNormalize} disabled={normalizing}
+                            startIcon={<NormalizeIcon size={14} />}>
+                            {normalizing ? '...' : 'Normalise'}
+                        </Button>
                         <Button size="small" variant="outlined" onClick={() => { setRefAudioPath(''); setRefAudioName(''); }}>
                             Clear
                         </Button>

@@ -49,6 +49,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
     const [midiDuration, setMidiDuration] = useState(null);
     const [midiPath, setMidiPath] = useState(null);
     const [midiWaveform, setMidiWaveform] = useState('sine');
+    const [midiDuty, setMidiDuty] = useState(0.25);
     const [midiTranspose, setMidiTranspose] = useState(0);
     const [midiBpm, setMidiBpm] = useState('');
     const [midiName, setMidiName] = useState('');
@@ -65,6 +66,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
     const [chordResultPath, setChordResultPath] = useState(null);
     const [chordResultName, setChordResultName] = useState('');
     const [chordWaveform, setChordWaveform] = useState('sine');
+    const [chordDuty, setChordDuty] = useState(0.25);
     const [mixBlend, setMixBlend] = useState(1.0);
     const [mixPreviewUrl, setMixPreviewUrl] = useState(null);
     const [mixPreviewing, setMixPreviewing] = useState(false);
@@ -113,6 +115,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
             const form = new FormData();
             form.append('file', f);
             form.append('waveform', midiWaveform);
+            form.append('duty', String(midiDuty));
             form.append('transpose', String(midiTranspose));
             if (midiBpm) form.append('bpm', midiBpm);
             const r = await api.post('/api/audio/midi/render', form);
@@ -139,6 +142,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
             const form = new FormData();
             form.append('file', midiFile);
             form.append('waveform', midiWaveform);
+            form.append('duty', String(midiDuty));
             form.append('transpose', String(midiTranspose));
             if (midiBpm) form.append('bpm', midiBpm);
             const r = await api.post('/api/audio/midi/render', form);
@@ -201,6 +205,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
             const r = await api.post('/api/audio/chord-to-sine/render', {
                 chord_text: chordText,
                 waveform: chordWaveform,
+                duty: chordDuty,
                 balance: 1.0,
                 base_midi: chordBaseMidi,
             });
@@ -342,7 +347,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
             </DialogTitle>
             <DialogContent dividers>
                 <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-                    <Tab label="MIDI to Sine" />
+                    <Tab label="MIDI to Waveform" />
                     <Tab label="Convert Audio to Chord Progression" />
                 </Tabs>
 
@@ -379,7 +384,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
                             <Box>
                                 <Typography variant="caption" color="text.secondary">Waveform</Typography>
                                 <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-                                    {['sine', 'triangle'].map(w => (
+                                    {['sine', 'triangle', 'square', 'sawtooth', 'pulse'].map(w => (
                                         <Button
                                             key={w}
                                             size="small"
@@ -392,6 +397,21 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
                                     ))}
                                 </Stack>
                             </Box>
+                            {midiWaveform === 'pulse' && (
+                                <Box>
+                                    <Typography variant="caption" color="text.secondary">Duty Cycle ({(midiDuty * 100).toFixed(0)}%)</Typography>
+                                    <Slider
+                                        value={midiDuty}
+                                        onChange={(_, v) => setMidiDuty(v)}
+                                        onChangeCommitted={() => { if (midiFile) reRenderMidi(); }}
+                                        min={0.05}
+                                        max={0.95}
+                                        step={0.05}
+                                        valueLabelDisplay="auto"
+                                        sx={{ mt: 0.5 }}
+                                    />
+                                </Box>
+                            )}
                             <Box>
                                 <Typography variant="caption" color="text.secondary">Transpose (±12 semitones)</Typography>
                                 <Stack direction="row" alignItems="center" spacing={2}>
@@ -514,7 +534,7 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
                             <Box>
                                 <Typography variant="caption" color="text.secondary">Waveform</Typography>
                                 <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-                                    {['sine', 'triangle'].map(w => (
+                                    {['sine', 'triangle', 'square', 'sawtooth', 'pulse'].map(w => (
                                         <Button
                                             key={w}
                                             size="small"
@@ -527,6 +547,20 @@ export default function ChordToSineModal({ open, onClose, onApplySource }) {
                                     ))}
                                 </Stack>
                             </Box>
+                            {chordWaveform === 'pulse' && (
+                                <Box>
+                                    <Typography variant="caption" color="text.secondary">Duty Cycle ({(chordDuty * 100).toFixed(0)}%)</Typography>
+                                    <Slider
+                                        value={chordDuty}
+                                        onChange={(_, v) => setChordDuty(v)}
+                                        min={0.05}
+                                        max={0.95}
+                                        step={0.05}
+                                        valueLabelDisplay="auto"
+                                        sx={{ mt: 0.5 }}
+                                    />
+                                </Box>
+                            )}
                             <Box>
                                 <Typography variant="caption" color="text.secondary">Base MIDI note</Typography>
                                 <TextField

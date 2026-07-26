@@ -18,8 +18,13 @@ def synthesize(
     sample_rate: int = 44100,
     amplitude: float = 0.2,
     base_midi: int = 48,
+    waveform: str = "sine",
+    duty: float = 0.25,
 ) -> None:
-    audio = build_sine_audio(chord_segments, sample_rate, amplitude, base_midi=base_midi)
+    audio = build_sine_audio(
+        chord_segments, sample_rate, amplitude,
+        base_midi=base_midi, waveform=waveform, duty=duty,
+    )
     sf.write(str(output_path), audio, sample_rate)
 
 

@@ -929,11 +929,21 @@ def list_loras():
                     group_key = ckpt.stem if is_fallback else run_dir.name
                     display_name = ckpt.stem if is_fallback else run_dir.name
 
+                    # Derive subfolder name from the checkpoint's parent
+                    # directory relative to the run dir, so the frontend can
+                    # group LoRAs by folder (e.g. guitars/, brass/).
+                    try:
+                        rel_to_run = ckpt.parent.relative_to(run_dir)
+                        subfolder = str(rel_to_run) if str(rel_to_run) != '.' else ''
+                    except ValueError:
+                        subfolder = ''
+
                     entry = loras_by_name.get(group_key)
                     if entry is None:
                         entry = {
                             "id": group_key,
                             "name": display_name,
+                            "subfolder": subfolder,
                             "base_model": base_model,
                             "rank": rank,
                             "alpha": alpha,
@@ -945,6 +955,7 @@ def list_loras():
                     entry["all_checkpoints"].append({
                         "path": rel_path,
                         "checkpoint": ckpt.stem,
+                        "subfolder": subfolder,
                         "size_bytes": ckpt.stat().st_size,
                         "mtime": ckpt.stat().st_mtime,
                     })
@@ -1031,6 +1042,51 @@ def upload_source_audio():
     return jsonify({"path": str(rel), "name": dest.name, "size_bytes": dest.stat().st_size, "duration_seconds": duration})
 
 
+@app.route('/api/audio/normalize', methods=['POST'])
+def normalize_audio():
+    """Peak-normalize an audio file to -1 dB and rewrite it in place.
+
+    Expects JSON body: { "path": "<relative path from project_root>" }
+    Returns { path, peak_db } on success.
+    """
+    data = request.get_json(silent=True) or {}
+    rel_path = data.get("path", "").strip()
+    if not rel_path:
+        return jsonify(APIResponse.error("No path provided.", status_code=400)), 400
+
+    cfg = get_config()
+    abs_path = cfg.project_root / rel_path
+    if not abs_path.exists():
+        return jsonify(APIResponse.error(f"File not found: {rel_path}", status_code=400)), 400
+
+    try:
+        import soundfile as sf
+        import numpy as np
+
+        audio, sr = sf.read(str(abs_path))
+        if audio.ndim == 1:
+            audio = audio[:, np.newaxis] if False else audio
+
+        peak = np.abs(audio).max()
+        if peak < 1e-10:
+            return jsonify(APIResponse.error("Audio is silent — nothing to normalize.", status_code=400)), 400
+
+        # Target -1 dBFS
+        target = 10 ** (-1.0 / 20.0)
+        gain = target / peak
+        audio = audio * gain
+        peak_db = 20 * np.log10(peak)
+        new_peak_db = 20 * np.log10(np.abs(audio).max())
+
+        sf.write(str(abs_path), audio, sr)
+        logger.info("Normalized %s: %.1f dB → %.1f dB (gain %.1f dB)", abs_path.name, peak_db, new_peak_db, 20 * np.log10(gain))
+
+        return jsonify({"path": rel_path, "peak_db": round(new_peak_db, 1)})
+    except Exception as e:
+        logger.exception("Audio normalization failed")
+        return jsonify(APIResponse.error(f"Normalization failed: {e}", status_code=500)), 500
+
+
 # ---------------------------------------------------------------------------
 # Serve uploaded / rendered files by relative project path
 # ---------------------------------------------------------------------------
@@ -1079,6 +1135,7 @@ def render_midi_to_audio():
     transpose = int(request.form.get('transpose', 0))
     bpm_raw = request.form.get('bpm', '').strip()
     bpm = float(bpm_raw) if bpm_raw else None
+    duty = float(request.form.get('duty', 0.25))
 
     cfg = get_config()
     uploads_dir = cfg.get_path("output") / "uploads"
@@ -1093,7 +1150,7 @@ def render_midi_to_audio():
         from app.core.audio.midi_synth import render_midi
         wav_name = f"{ts}_{safe}_{waveform}.wav"
         wav_dest = uploads_dir / wav_name
-        duration = render_midi(str(midi_dest), str(wav_dest), waveform=waveform, transpose=transpose, bpm=bpm)
+        duration = render_midi(str(midi_dest), str(wav_dest), waveform=waveform, transpose=transpose, bpm=bpm, duty=duty)
         rel = wav_dest.relative_to(cfg.project_root)
         return jsonify({"path": str(rel), "name": wav_dest.name, "duration_seconds": duration})
     except Exception as e:
@@ -1155,6 +1212,7 @@ def chord_to_sine_render():
     waveform = data.get('waveform', 'sine')
     balance = float(data.get('balance', 1.0))
     base_midi = int(data.get('base_midi', 48))
+    duty = float(data.get('duty', 0.25))
 
     quota_err = _check_disk_quota()
     if quota_err:
@@ -1173,7 +1231,7 @@ def chord_to_sine_render():
         wav_name = f"{ts}_chord_sine_{waveform}.wav"
         wav_dest = uploads_dir / wav_name
 
-        synthesize(chords, str(wav_dest), amplitude=0.2 * balance, base_midi=base_midi)
+        synthesize(chords, str(wav_dest), amplitude=0.2 * balance, base_midi=base_midi, waveform=waveform, duty=duty)
         duration = chords[-1][1] if chords else 0
         rel = wav_dest.relative_to(cfg.project_root)
         return jsonify({"path": str(rel), "name": wav_dest.name, "duration_seconds": duration})

@@ -20,9 +20,27 @@ def _triangle_wave(freq: float, t: np.ndarray, amplitude: float) -> np.ndarray:
     return amplitude * (2.0 * np.abs(2.0 * phase - 1.0) - 1.0)
 
 
+def _square_wave(freq: float, t: np.ndarray, amplitude: float) -> np.ndarray:
+    phase = (freq * t) % 1.0
+    return amplitude * np.sign(2.0 * phase - 1.0)
+
+
+def _sawtooth_wave(freq: float, t: np.ndarray, amplitude: float) -> np.ndarray:
+    phase = (freq * t) % 1.0
+    return amplitude * (2.0 * phase - 1.0)
+
+
+def _pulse_wave(freq: float, t: np.ndarray, amplitude: float, duty: float = 0.25) -> np.ndarray:
+    phase = (freq * t) % 1.0
+    return amplitude * np.where(phase < duty, 1.0, -1.0)
+
+
 _WAVEFORM_FUNCS = {
     "sine": _sine_wave,
     "triangle": _triangle_wave,
+    "square": _square_wave,
+    "sawtooth": _sawtooth_wave,
+    "pulse": _pulse_wave,
 }
 
 
@@ -132,6 +150,7 @@ def render_midi(
     bpm: float | None = None,
     sample_rate: int = 44100,
     amplitude: float = 0.2,
+    duty: float = 0.25,
 ) -> float:
     parsed_notes, orig_bpm = _parse_midi_with_mido(midi_path, transpose=transpose)
 
@@ -171,6 +190,10 @@ def render_midi(
     audio = np.zeros(total_samples, dtype=np.float64)
 
     wave_fn = _WAVEFORM_FUNCS.get(waveform, _sine_wave)
+    # Pulse wave needs a duty cycle parameter
+    import functools
+    if waveform == "pulse":
+        wave_fn = functools.partial(wave_fn, duty=duty)
     fade_samples = 128
 
     for n in notes:
