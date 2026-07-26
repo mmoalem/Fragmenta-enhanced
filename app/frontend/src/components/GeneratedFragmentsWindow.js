@@ -515,18 +515,7 @@ export default function GeneratedFragmentsWindow({ fragments, onDelete, onClearA
                                 </Tooltip>
 
                                 {fragment.filename && (
-                                    isDocker ? (
-                                        <Tooltip title={TIPS.fragments.download} placement="top" arrow>
-                                            <IconButton
-                                                size="small"
-                                                onClick={() => downloadFragment(fragment)}
-                                                aria-label="Download fragment"
-                                                sx={{ color: 'text.disabled', '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}
-                                            >
-                                                <DownloadIcon size={16} />
-                                            </IconButton>
-                                        </Tooltip>
-                                    ) : (
+                                    <>
                                         <Tooltip title={TIPS.fragments.revealInFolder} placement="top" arrow>
                                             <IconButton
                                                 size="small"
@@ -537,7 +526,17 @@ export default function GeneratedFragmentsWindow({ fragments, onDelete, onClearA
                                                 <RevealIcon size={16} />
                                             </IconButton>
                                         </Tooltip>
-                                    )
+                                        <Tooltip title={TIPS.fragments.download} placement="top" arrow>
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => downloadFragment(fragment)}
+                                                aria-label="Download fragment"
+                                                sx={{ color: 'text.disabled', '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}
+                                            >
+                                                <DownloadIcon size={16} />
+                                            </IconButton>
+                                        </Tooltip>
+                                    </>
                                 )}
 
                                 {onDelete && (
