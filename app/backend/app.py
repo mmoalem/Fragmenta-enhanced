@@ -849,14 +849,17 @@ def list_loras():
 
                 # SA3 checkpoints live under <run>/checkpoints/. Fall back
                 # to the run dir itself for runs that don't follow that
-                # convention.
+                # convention.  Use rglob in fallback mode so subdirectories
+                # (e.g. an "others/" folder with standalone .safetensors)
+                # are included.
                 search_dirs = [run_dir / "checkpoints", run_dir]
                 is_fallback = not (run_dir / "checkpoints").is_dir()
                 ckpt_files = []
                 for d in search_dirs:
                     if d.is_dir():
+                        glob_fn = d.rglob if is_fallback else d.glob
                         ckpt_files = sorted(
-                            d.glob("*.safetensors"),
+                            glob_fn("*.safetensors"),
                             key=lambda p: p.stat().st_mtime,
                         )
                         if ckpt_files:
