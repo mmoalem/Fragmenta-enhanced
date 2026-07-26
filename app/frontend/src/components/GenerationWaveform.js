@@ -202,21 +202,31 @@ export default function GenerationWaveform({
         pointerDownRef.current = false;
     }, []);
 
-    // Native drag-to-OS as a file. The DownloadURL mime type is a Chromium
-    // extension the OS interprets as "this drag is a file the browser can
-    // serve from URL X with mime/name Y". Source is whichever URL we have:
-    // a blob: URL for in-memory fragments, or the backend /api/fragments/
-    // path for disk-hydrated ones. The OS needs an ABSOLUTE URL, so we
-    // resolve relative paths against window.location.origin.
+    // Native drag-to-OS as a file.  We put a real File object on the
+    // dataTransfer so the OS (Explorer, Finder, DAWs) can accept the drop.
+    // This works in pywebview/WebView2 and standard browsers alike.
     const canDrag = !!(audioUrl || blob);
-    const handleDragStart = (e) => {
+    const handleDragStart = async (e) => {
         if (!canDrag) return;
-        const raw = audioUrl || URL.createObjectURL(blob);
-        const absolute = (raw.startsWith('http') || raw.startsWith('blob:'))
-            ? raw
-            : `${window.location.origin}${raw.startsWith('/') ? '' : '/'}${raw}`;
-        e.dataTransfer.setData('DownloadURL', `audio/wav:${filename}:${absolute}`);
         e.dataTransfer.effectAllowed = 'copy';
+        try {
+            let fileBlob = blob;
+            if (!fileBlob && audioUrl) {
+                const resp = await fetch(audioUrl);
+                if (!resp.ok) return;
+                fileBlob = await resp.blob();
+            }
+            if (!fileBlob) return;
+            const file = new File([fileBlob], filename, { type: 'audio/wav' });
+            e.dataTransfer.items.add(file);
+        } catch {
+            // Fallback: set a URI-list so at least browser-to-browser works
+            const raw = audioUrl || URL.createObjectURL(blob);
+            const absolute = (raw.startsWith('http') || raw.startsWith('blob:'))
+                ? raw
+                : `${window.location.origin}${raw.startsWith('/') ? '' : '/'}${raw}`;
+            e.dataTransfer.setData('text/uri-list', absolute);
+        }
     };
 
     return (
