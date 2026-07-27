@@ -13,7 +13,9 @@ import {
     IconButton,
     Chip,
     Alert,
-    Popover,
+    Dialog,
+    DialogTitle,
+    DialogContent,
     Collapse,
     TextField,
     InputAdornment,
@@ -56,7 +58,7 @@ export default function LoraStack({ selectedModel, value, onChange }) {
     const [error, setError] = useState(null);
     const [dragIndex, setDragIndex] = useState(null);
     const [openFolder, setOpenFolder] = useState(null);
-    const [pickerAnchor, setPickerAnchor] = useState(null);
+    const [pickerOpen, setPickerOpen] = useState(false);
     const [activeSlotIdx, setActiveSlotIdx] = useState(null);
     const [loraSort, setLoraSort] = useState('newest'); // 'newest' | 'alpha'
     const [loraSearch, setLoraSearch] = useState('');
@@ -139,15 +141,15 @@ export default function LoraStack({ selectedModel, value, onChange }) {
     };
 
     // --- folder picker handlers -------------------------------------------
-    const openPicker = (anchor, idx) => {
-        setPickerAnchor(anchor);
+    const openPicker = (idx) => {
+        setPickerOpen(true);
         setActiveSlotIdx(idx);
         setOpenFolder(null);
         setLoraSearch('');
     };
 
     const closePicker = () => {
-        setPickerAnchor(null);
+        setPickerOpen(false);
         setActiveSlotIdx(null);
         setOpenFolder(null);
     };
@@ -239,10 +241,10 @@ export default function LoraStack({ selectedModel, value, onChange }) {
                                         {idx}
                                     </Typography>
                                     <Tooltip title="Click to pick a LoRA">
-                                        <Button
-                                            size="small"
-                                            variant="outlined"
-                                            onClick={(e) => openPicker(e.currentTarget, idx)}
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => openPicker(idx)}
                                             sx={{
                                                 flex: 1,
                                                 minWidth: 0,
@@ -377,27 +379,26 @@ export default function LoraStack({ selectedModel, value, onChange }) {
                 </Button>
             </Stack>
 
-            {/* Folder-grouped LoRA picker popover */}
-            <Popover
-                open={Boolean(pickerAnchor)}
-                anchorEl={pickerAnchor}
+            {/* LoRA picker dialog — 80% of window, centered */}
+            <Dialog
+                open={pickerOpen}
                 onClose={closePicker}
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-                slotProps={{
-                    paper: {
-                        sx: {
-                            maxHeight: 360,
-                            width: 320,
-                            overflow: 'auto',
-                            mt: 0.5,
-                        },
+                maxWidth={false}
+                PaperProps={{
+                    sx: {
+                        width: '80vw',
+                        height: '80vh',
+                        maxHeight: '80vh',
+                        borderRadius: 2,
                     },
                 }}
             >
-                <Box sx={{ py: 0.5 }}>
+                <DialogTitle sx={{ py: 1, px: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="subtitle1" sx={{ flex: 1 }}>Pick a LoRA</Typography>
+                </DialogTitle>
+                <DialogContent sx={{ py: 0, px: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     {/* Search bar */}
-                    <Box sx={{ px: 1.5, pt: 0.5, pb: 0.5, display: 'flex', gap: 0.5 }}>
+                    <Box sx={{ px: 2, pt: 1, pb: 1, display: 'flex', gap: 0.5, flexShrink: 0 }}>
                         <TextField
                             size="small"
                             placeholder="Search LoRAs…"
@@ -423,66 +424,69 @@ export default function LoraStack({ selectedModel, value, onChange }) {
                             </IconButton>
                         </Tooltip>
                     </Box>
-                    {groupedLoRAs.length === 0 && (
-                        <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1 }}>
-                            {loraSearch.trim() ? 'No matching LoRAs.' : 'No compatible LoRAs found.'}
-                        </Typography>
-                    )}
-                    {groupedLoRAs.map(([folder, loras]) => (
-                        <Box key={folder}>
-                            {/* Folder header */}
-                            <Button
-                                fullWidth
-                                size="small"
-                                onClick={() => toggleFolder(folder)}
-                                sx={{
-                                    justifyContent: 'flex-start',
-                                    textTransform: 'none',
-                                    px: 1.5,
-                                    py: 0.5,
-                                    minHeight: 32,
-                                    color: 'text.primary',
-                                    '&:hover': { bgcolor: 'action.hover' },
-                                }}
-                            >
-                                {openFolder === folder
-                                    ? <FolderOpenIcon size={16} sx={{ mr: 1, color: 'text.secondary' }} />
-                                    : <FolderIcon size={16} sx={{ mr: 1, color: 'text.secondary' }} />
-                                }
-                                <Typography variant="body2" sx={{ flex: 1, textAlign: 'left' }}>
-                                    {folder === 'Root' ? 'Root (no folder)' : folder}
-                                </Typography>
-                                <Chip size="small" label={loras.length} sx={{ height: 18, fontSize: 10, mr: 0.5 }} />
-                                {openFolder === folder
-                                    ? <ChevronDownIcon size={14} />
-                                    : <ChevronRightIcon size={14} />
-                                }
-                            </Button>
+                    {/* Scrollable list */}
+                    <Box sx={{ flex: 1, overflow: 'auto', px: 1 }}>
+                        {groupedLoRAs.length === 0 && (
+                            <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1 }}>
+                                {loraSearch.trim() ? 'No matching LoRAs.' : 'No compatible LoRAs found.'}
+                            </Typography>
+                        )}
+                        {groupedLoRAs.map(([folder, loras]) => (
+                            <Box key={folder}>
+                                {/* Folder header */}
+                                <Button
+                                    fullWidth
+                                    size="small"
+                                    onClick={() => toggleFolder(folder)}
+                                    sx={{
+                                        justifyContent: 'flex-start',
+                                        textTransform: 'none',
+                                        px: 1.5,
+                                        py: 0.5,
+                                        minHeight: 32,
+                                        color: 'text.primary',
+                                        '&:hover': { bgcolor: 'action.hover' },
+                                    }}
+                                >
+                                    {openFolder === folder
+                                        ? <FolderOpenIcon size={16} sx={{ mr: 1, color: 'text.secondary' }} />
+                                        : <FolderIcon size={16} sx={{ mr: 1, color: 'text.secondary' }} />
+                                    }
+                                    <Typography variant="body2" sx={{ flex: 1, textAlign: 'left' }}>
+                                        {folder === 'Root' ? 'Root (no folder)' : folder}
+                                    </Typography>
+                                    <Chip size="small" label={loras.length} sx={{ height: 18, fontSize: 10, mr: 0.5 }} />
+                                    {openFolder === folder
+                                        ? <ChevronDownIcon size={14} />
+                                        : <ChevronRightIcon size={14} />
+                                    }
+                                </Button>
 
-                            {/* Nested LoRA items */}
-                            <Collapse in={openFolder === folder} timeout="auto">
-                                {loras.map((lora) => (
-                                    <MenuItem
-                                        key={lora.id}
-                                        onClick={() => selectLora(lora)}
-                                        sx={{ pl: 4, py: 0.5, minHeight: 36 }}
-                                    >
-                                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                                            <Typography variant="body2" noWrap>
-                                                {lora.name} · {lora.checkpoint}
-                                            </Typography>
-                                            <Stack direction="row" spacing={0.5} sx={{ mt: 0.25 }}>
-                                                <Chip size="small" label={lora.adapter_type || 'lora'} sx={{ height: 16, fontSize: 9 }} />
-                                                {lora.rank && <Chip size="small" label={`r=${lora.rank}`} sx={{ height: 16, fontSize: 9 }} />}
-                                            </Stack>
-                                        </Box>
-                                    </MenuItem>
-                                ))}
-                            </Collapse>
-                        </Box>
-                    ))}
-                </Box>
-            </Popover>
+                                {/* Nested LoRA items */}
+                                <Collapse in={openFolder === folder} timeout="auto">
+                                    {loras.map((lora) => (
+                                        <MenuItem
+                                            key={lora.id}
+                                            onClick={() => selectLora(lora)}
+                                            sx={{ pl: 4, py: 0.5, minHeight: 36 }}
+                                        >
+                                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                                <Typography variant="body2" noWrap>
+                                                    {lora.name} · {lora.checkpoint}
+                                                </Typography>
+                                                <Stack direction="row" spacing={0.5} sx={{ mt: 0.25 }}>
+                                                    <Chip size="small" label={lora.adapter_type || 'lora'} sx={{ height: 16, fontSize: 9 }} />
+                                                    {lora.rank && <Chip size="small" label={`r=${lora.rank}`} sx={{ height: 16, fontSize: 9 }} />}
+                                                </Stack>
+                                            </Box>
+                                        </MenuItem>
+                                    ))}
+                                </Collapse>
+                            </Box>
+                        ))}
+                    </Box>
+                </DialogContent>
+            </Dialog>
             </AccordionDetails>
         </Accordion>
     );
