@@ -15,6 +15,8 @@ import {
     Alert,
     Popover,
     Collapse,
+    TextField,
+    InputAdornment,
 } from '@mui/material';
 import { TIPS } from '../tooltips';
 import Tooltip from './Tooltip';
@@ -27,6 +29,8 @@ import {
     ChevronRight as ChevronRightIcon,
     Folder as FolderIcon,
     FolderOpen as FolderOpenIcon,
+    ArrowUpDown as SortIcon,
+    Search as SearchIcon,
 } from 'lucide-react';
 import api from '../api';
 import { isLoraCompatible } from '../utils/loraMatch';
@@ -54,6 +58,8 @@ export default function LoraStack({ selectedModel, value, onChange }) {
     const [openFolder, setOpenFolder] = useState(null);
     const [pickerAnchor, setPickerAnchor] = useState(null);
     const [activeSlotIdx, setActiveSlotIdx] = useState(null);
+    const [loraSort, setLoraSort] = useState('newest'); // 'newest' | 'alpha'
+    const [loraSearch, setLoraSearch] = useState('');
 
     useEffect(() => {
         let cancelled = false;
@@ -76,20 +82,32 @@ export default function LoraStack({ selectedModel, value, onChange }) {
     // Group compatible LoRAs by subfolder for the folder picker.
     // Root-level LoRAs (subfolder === '') go in a 'Root' group.
     const groupedLoRAs = useMemo(() => {
+        // Apply search filter
+        const query = loraSearch.trim().toLowerCase();
+        const filtered = query
+            ? compatible.filter(l => l.name.toLowerCase().includes(query))
+            : compatible;
+
+        // Apply sort
+        const sorted = [...filtered].sort((a, b) => {
+            if (loraSort === 'alpha') return a.name.localeCompare(b.name);
+            return (b.mtime || 0) - (a.mtime || 0);
+        });
+
         const groups = {};
-        for (const lora of compatible) {
+        for (const lora of sorted) {
             const folder = lora.subfolder || 'Root';
             if (!groups[folder]) groups[folder] = [];
             groups[folder].push(lora);
         }
-        // Sort: Root first, then alphabetical
-        const sorted = Object.entries(groups).sort(([a], [b]) => {
+        // Sort folders: Root first, then alphabetical
+        const result = Object.entries(groups).sort(([a], [b]) => {
             if (a === 'Root') return -1;
             if (b === 'Root') return 1;
             return a.localeCompare(b);
         });
-        return sorted;
-    }, [compatible]);
+        return result;
+    }, [compatible, loraSort, loraSearch]);
 
     // The single-LoRA case stays one click: when no slots are populated AND
     // there's a compatible LoRA, surface one empty slot so the user sees a
@@ -125,6 +143,7 @@ export default function LoraStack({ selectedModel, value, onChange }) {
         setPickerAnchor(anchor);
         setActiveSlotIdx(idx);
         setOpenFolder(null);
+        setLoraSearch('');
     };
 
     const closePicker = () => {
@@ -380,9 +399,36 @@ export default function LoraStack({ selectedModel, value, onChange }) {
                 }}
             >
                 <Box sx={{ py: 0.5 }}>
+                    {/* Search bar */}
+                    <Box sx={{ px: 1.5, pt: 0.5, pb: 0.5, display: 'flex', gap: 0.5 }}>
+                        <TextField
+                            size="small"
+                            placeholder="Search LoRAs…"
+                            value={loraSearch}
+                            onChange={(e) => setLoraSearch(e.target.value)}
+                            autoFocus
+                            InputProps={{
+                                startAdornment: (
+                                    <InputAdornment position="start">
+                                        <SearchIcon size={14} />
+                                    </InputAdornment>
+                                ),
+                                sx: { fontSize: 13, py: 0.25 },
+                            }}
+                            sx={{ flex: 1 }}
+                        />
+                        <Tooltip title={loraSort === 'newest' ? 'Newest first — click for alphabetical' : 'Alphabetical — click for newest first'}>
+                            <IconButton
+                                size="small"
+                                onClick={() => setLoraSort(s => s === 'newest' ? 'alpha' : 'newest')}
+                            >
+                                <SortIcon size={14} />
+                            </IconButton>
+                        </Tooltip>
+                    </Box>
                     {groupedLoRAs.length === 0 && (
                         <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1 }}>
-                            No compatible LoRAs found.
+                            {loraSearch.trim() ? 'No matching LoRAs.' : 'No compatible LoRAs found.'}
                         </Typography>
                     )}
                     {groupedLoRAs.map(([folder, loras]) => (
