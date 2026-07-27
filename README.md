@@ -58,20 +58,48 @@ Sigma schedule warping that controls how denoising steps are distributed:
 
 ### Alternative Reference Audio
 
-Available in the **Edit tab**, the **Alternative Ref Input** button opens a dialog that generates clean synthetic reference audio — useful as a style-transfer or inpainting source. Pure sine-wave references let the model focus on the harmonic structure (key, chord progression, register) without the clutter of real-instrument timbre, background noise, or mix artefacts.
+Available in the **Edit tab**, the **Alternative Ref Input** button opens a dialog that generates clean synthetic reference audio — useful as a style-transfer or inpainting source. Synthetic references let the model focus on the harmonic structure (key, chord progression, register) without the clutter of real-instrument timbre, background noise, or mix artefacts.
 
 Two modes:
 
 | Mode | What it does |
 |---|---|
-| **MIDI to Sine** | Import a `.mid` file → render each note as a pure sine or triangle wave. Adjustable waveform and transposition (±12 semitones). Good for transferring a specific melodic/harmonic idea into the model. |
-| **Convert Audio to Chord Progression** | Upload any audio file → AI chord extraction (madmom CNN+CRF, librosa fallback) → editable chord text → render as sine/triangle wave. A **mix slider** blends the original audio with the sine output so you can inject a controlled amount of the original timbre alongside the clean harmonic guide. |
+| **MIDI to Waveform** | Import a `.mid` file → render each note as a synthesised waveform. Adjustable waveform type, transposition (±12 semitones). Good for transferring a specific melodic/harmonic idea into the model. |
+| **Convert Audio to Chord Progression** | Upload any audio file → AI chord extraction (madmom CNN+CRF, librosa fallback) → editable chord text → render as synthesised waveform. A **mix slider** blends the original audio with the waveform output so you can inject a controlled amount of the original timbre alongside the clean harmonic guide. The chord text is fully editable — correct extraction mistakes, change the progression, or write your own from scratch. |
+
+**Waveform types** — both modes support five waveforms:
+
+| Waveform | Character |
+|---|---|
+| **Sine** | Pure, smooth — minimal harmonic content |
+| **Triangle** | Warm, soft — odd harmonics only |
+| **Square** | Hollow, retro — odd harmonics, stronger |
+| **Sawtooth** | Bright, buzzy — all harmonics |
+| **Pulse** | Adjustable duty cycle (5%–95%) — thin/nasal at low duty, full at 50% (≈ square) |
+
+**Reference normaliser.** A **Normalise** button peak-normalises the reference audio to −1 dBFS in place, useful after mixing or when the source level is inconsistent.
 
 Both modes produce a `.wav` that is automatically uploaded as the Edit tab's source clip via **Use as source**.
 
-### LoRA System Fix
+### MIDI Renderer
+
+The MIDI-to-waveform renderer uses `mido` (not `pretty_midi`) to avoid the `MAX_TICK = 10⁷` limit that breaks ACE Studio exports, which embed notes at ~4.3 billion absolute ticks (near 2³²). The renderer detects and subtracts the offset automatically, and enforces a 10-minute render cap.
+
+### LoRA System
 
 Circular import between `model.py` and `utils.py` in the vendored SA3 LoRA module resolved — required for the LoRA system to load at all.
+
+**Per-head strength sliders.** Each LoRA slot exposes independent strength controls for the three adapter heads:
+
+| Slider | What it controls |
+|---|---|
+| **SA** | Self-Attention — intra-token relationships |
+| **CA** | Cross-Attention — prompt-to-token conditioning |
+| **MLP** | Feed-Forward — per-token feature transformation |
+
+Each slider ranges from **-2 to 2**. Negative values invert the adapter effect (`W' = W − α·BA`), which can produce interesting timbral inversions. The bypass toggle zeroes all three strengths without removing the slot.
+
+**Folder-grouped LoRA picker.** The Generation tab's LoRA picker opens as a full-size dialog (80% of window) with folder-grouped results, real-time search, and a sort toggle (newest-first / alphabetical). LoRAs can live in subdirectories (e.g. `models/fine_tuned/my-lora/checkpoints/others/`) — the picker scans recursively.
 
 > **LoRA architecture compatibility.** The app pairs LoRAs to checkpoints by stripping the `-base` suffix before comparing, so a LoRA trained on `sa3-medium` works with both `sa3-medium` and `sa3-medium-base` (same DiT backbone, only CFG distillation state differs). The same logic applies to the small variants. What *is* incompatible: `*-small-music` LoRAs will not load onto `*-small-sfx` checkpoints, or vice versa, because music and SFX have fundamentally different conditioning objectives despite sharing the same layer/embed dimensions. When in doubt, check the LoRA's `base_model` metadata key — the app shows a clear error on true mismatches.
 
@@ -82,7 +110,7 @@ Circular import between `model.py` and `utils.py` in the vendored SA3 LoRA modul
 - **Desktop app** with a lightweight `pywebview` window and a pre-built React frontend
 - **Bulk auto-annotation** — generate text prompts for your audio files via DSP analysis (Basic) or AI tagging with LAION-CLAP (Rich), with optional user-defined vocabulary
 - **Project-aware LoRA training** with configurable rank, steps, learning rate, batch size, checkpoint frequency, and precision — trains directly on a Dataset Workbench project
-- **LoRA adapters** — train LoRA, DoRA, or BoRA adapters (plus low-VRAM `-xs` variants) on top of a frozen `*-base` checkpoint for consumer GPUs; stack up to 4 at once with per-slot strength, bypass, and reorder at generation time
+- **LoRA adapters** — train LoRA, DoRA, or BoRA adapters (plus low-VRAM `-xs` variants) on top of a frozen `*-base` checkpoint for consumer GPUs; stack up to 4 at once with per-head SA/CA/MLP strength sliders (−2 to 2), bypass, and reorder at generation time
 - **Text-to-audio generation** — variable-length clips (up to 120s small / 380s medium), with CFG scale, inference steps, seed control, and a multi-LoRA stack
 - **Audio editing (Edit tab)** — style transfer (audio-to-audio), region inpainting, and clip extension/continuation
 - **Checkpoint Manager** — pick and download individual SA3 checkpoints (Small Music/SFX, Medium, and the matching `*-base` models) with per-item progress and hardware-compatibility hints
@@ -120,6 +148,7 @@ models/fine_tuned/<run_name>/checkpoints/
 ```
 
 - `<run_name>` is any folder name you choose (e.g. `my-lora` or `saxbarblues`).
+- Subdirectories are supported (e.g. `checkpoints/guitars/`, `checkpoints/others/`) — the picker scans recursively and groups by folder.
 - The file must carry a `base_model` key in its safetensors metadata (e.g. `sa3-medium` or `sa3-small-music`). The app reads this automatically.
 - No extra config files are needed; drop the files in and the LoRA picker in the **Performance** tab (and Generation tab LoRA stack) will pick them up on next launch.
 
